@@ -1,0 +1,31 @@
+server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # 백엔드 요청 한도 210MB보다 크게 잡는다. 초과분은 백엔드가 413으로 거절한다
+  client_max_body_size 220m;
+  client_body_timeout 300s;
+
+  location /api/ {
+    # URI를 붙이지 않아 /api/... 경로를 그대로 넘긴다. BACKEND_URL은 http://호스트:포트 형식(경로, 끝의 / 금지)
+    proxy_pass ${BACKEND_URL};
+    proxy_http_version 1.1;
+    # 브라우저가 보낸 host:port를 그대로 넘겨 백엔드 CORS 검사를 통과한다
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_connect_timeout 30s;
+    proxy_send_timeout 300s;
+    proxy_read_timeout 300s;
+    # 큰 업로드를 nginx 임시 파일에 쌓지 않고 바로 넘긴다
+    proxy_request_buffering off;
+  }
+
+  # SPA 경로는 index.html로 돌린다
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}

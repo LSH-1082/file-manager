@@ -1,0 +1,112 @@
+# 세 서버(MySQL, 백엔드, 프런트)를 함께 띄운다. 루트에서 `docker compose up --build`
+name: filemanager # 볼륨 이름 접두사가 폴더 이름에 따라 바뀌지 않게 고정한다
+
+# networks는 정의하지 않는다. compose 기본 네트워크가 사용자 정의 브리지라
+# 서비스 이름(mysql, backend)으로 서로 찾는다.
+services:
+  mysql:
+    build: ./docker/mysql # 공식 mysql:8 기반(utf8mb4, UTC)
+    image: filemanager-mysql
+    environment:
+      MYSQL_DATABASE: fileManager # 첫 기동 때 만들 DB
+      MYSQL_USER: ${FILEMANAGER_DB_USERNAME:-fileManager} # 백엔드와 같은 변수
+      MYSQL_PASSWORD: ${FILEMANAGER_DB_PASSWORD:-fileManager1!} # 백엔드와 같은 변수
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-fileManagerRoot1!} # 공식 이미지 필수 값
+    volumes:
+      - mysql-data:/var/lib/mysql # DB 데이터
+    healthcheck:
+      # 127.0.0.1(TCP)로 확인해 초기화용 임시 서버(skip-networking) 단계에서는 실패하게 한다.
+      # 접근 거부여도 서버가 살아 있으면 0을 돌려주므로 비밀번호는 넣지 않는다.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    # ports는 두지 않는다. 호스트에서 접속하려면 ports: ["3307:3306"] 등을 더한다.
+
+  backend:
+    build: ./backend
+    image: filemanager-backend
+    environment:
+      FILEMANAGER_DB_URL: "jdbc:mysql://mysql:3306/fileManager?createDatabaseIfNotExist=true&connectionTimeZone=UTC&characterEncoding=UTF-8"
+      FILEMANAGER_DB_USERNAME: ${FILEMANAGER_DB_USERNAME:-fileManager}
+      FILEMANAGER_DB_PASSWORD: ${FILEMANAGER_DB_PASSWORD:-fileManager1!}
+      # FILEMANAGER_STORAGE_ROOT는 이미지 기본값(/app/data/storage)을 쓰므로 지정하지 않는다.
+    volumes:
+      - backend-storage:/app/data/storage # 파일 본문 저장 루트(SMB 공유, CIFS)
+    depends_on:
+      mysql:
+        condition: service_healthy # MySQL이 준비된 뒤 시작
+    # ports는 두지 않는다. 로컬 bootRun(8080)과 겹치지 않게 열지 않으며, 필요하면 "8081:8080" 등을 더한다.
+
+  frontend:
+    build: ./frontend
+    image: filemanager-frontend
+    environment:
+      BACKEND_URL: http://backend:8080 # nginx가 /api를 넘길 백엔드 주소
+    ports:
+      - "${FRONTEND_PORT:-3000}:80" # 호스트 포트:nginx 포트
+    depends_on:
+      - backend
+
+  # MySQL 백업(필요할 때만 실행). 평소 docker compose up으로는 뜨지 않는다. 실행: docker compose run --rm mysql-backup
+  mysql-backup:
+    build: ./docker/mysql
+    image: filemanager-mysql # mysql 서비스와 같은 이미지(mysqldump·gzip 포함)
+    profiles: ["backup"]
+    environment:
+      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD:-fileManagerRoot1!} # mysqldump·mysql이 읽는 root 비밀번호(명령줄에 노출하지 않는다). mysql 서비스와 같은 변수·기본값
+      BACKUP_KEEP_DAYS: ${FILEMANAGER_MYSQL_BACKUP_KEEP_DAYS:-0} # 0이면 지우지 않는다
+    volumes:
+      - mysql-backup-share:/backup # 백업 파일 저장 공유(SMB, CIFS)
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+    # 엔트리포인트를 바꾸므로 이미지의 CMD(mysqld)는 쓰이지 않는다. 스크립트 안의 셸 $는 compose 치환을 피하려고 $$로 적는다.
+    # --single-transaction은 InnoDB 일관 스냅샷이라 서비스를 멈추지 않는다.
+    # --databases라 덤프에 CREATE DATABASE·USE가 들어가 복원이 간단하다.
+    # 시각은 UTC(Z)다. .part로 쓴 뒤 이름을 바꿔 덜 쓴 파일이 백업처럼 보이지 않게 한다.
+    # 보관 정리는 /backup 바로 아래 fileManager_*.sql.gz만 대상이다.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        out="/backup/fileManager_$$(date -u +%Y%m%d_%H%M%SZ).sql.gz"
+        trap 'rm -f "$$out.part"' ERR
+        mysqldump -h mysql -u root --single-transaction --quick --routines --triggers --events --hex-blob --no-tablespaces --set-gtid-purged=OFF --databases fileManager | gzip > "$$out.part"
+        mv "$$out.part" "$$out"
+        echo "백업 완료: $$out"
+        if [ "$$BACKUP_KEEP_DAYS" -gt 0 ]; then
+          find /backup -maxdepth 1 -type f -name 'fileManager_*.sql.gz' -mtime +"$$BACKUP_KEEP_DAYS" -print -delete
+        fi
+
+# 실제 볼륨 이름은 filemanager_mysql-data, filemanager_backend-storage, filemanager_mysql-backup-share다.
+# backend-storage는 데이터를 담는 볼륨이 아니라 SMB 공유(CIFS)를 가리키는 마운트 설정이다.
+# 그래서 docker compose down -v는 이 볼륨 정의만 지우고 공유의 파일은 지우지 않는다.
+volumes:
+  mysql-data: {}
+  backend-storage:
+    driver: local
+    driver_opts:
+      type: cifs
+      # 주소는 FILEMANAGER_SMB_HOST 하나에서 device와 addr를 함께 만든다(커널 cifs 마운트는 addr=로 IP를 받는다).
+      device: "//${FILEMANAGER_SMB_HOST:-192.168.0.8}/${FILEMANAGER_SMB_SHARE:-Media/repository}"
+      # uid/gid 10001은 backend/Dockerfile의 비루트 사용자 app(uid 10001, gid 10001)과 같아야 한다.
+      #   CIFS 마운트는 이미지의 chown이 아니라 이 옵션으로 소유자가 정해진다.
+      # iocharset=utf8은 한글 폴더 이름(_미분류, _자료, 카테고리 이름)을 위해 둔다.
+      # 사용자·비밀번호는 기본값 없이 필수다(비면 compose가 바로 알려 준다). 비밀번호에 쉼표는 쓸 수 없다(마운트 옵션 구분자).
+      # 이미 같은 이름의 일반 로컬 볼륨이 있으면 docker volume rm filemanager_backend-storage 뒤 다시 띄운다.
+      o: "addr=${FILEMANAGER_SMB_HOST:-192.168.0.8},username=${FILEMANAGER_SMB_USERNAME:?.env에 FILEMANAGER_SMB_USERNAME을 지정한다},password=${FILEMANAGER_SMB_PASSWORD:?.env에 FILEMANAGER_SMB_PASSWORD를 지정한다},uid=10001,gid=10001,file_mode=0664,dir_mode=0775,vers=${FILEMANAGER_SMB_VERS:-2.1},iocharset=utf8"
+  # mysql-backup 서비스만 쓰므로 평소 up에서는 만들어지지 않는다(profile backup).
+  # 백업 컨테이너는 root로 돌아 uid/gid를 지정하지 않는다(마운트 기본 소유자 root).
+  # 주소·계정은 backend-storage와 같은 SMB 변수를 쓰고 공유 경로만 FILEMANAGER_MYSQL_BACKUP_SHARE로 바꾼다.
+  # down -v는 정의만 지우고 공유의 백업 파일은 지우지 않는다. profile 없이 down -v 하면 이 정의는 남는다(지우려면 docker compose --profile backup down -v).
+  # 비밀번호에 쉼표는 쓸 수 없다(backend-storage와 같다).
+  mysql-backup-share:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//${FILEMANAGER_SMB_HOST:-192.168.0.8}/${FILEMANAGER_MYSQL_BACKUP_SHARE:-Media/MySQL}"
+      o: "addr=${FILEMANAGER_SMB_HOST:-192.168.0.8},username=${FILEMANAGER_SMB_USERNAME:?.env에 FILEMANAGER_SMB_USERNAME을 지정한다},password=${FILEMANAGER_SMB_PASSWORD:?.env에 FILEMANAGER_SMB_PASSWORD를 지정한다},file_mode=0660,dir_mode=0770,vers=${FILEMANAGER_SMB_VERS:-2.1},iocharset=utf8"

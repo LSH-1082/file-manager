@@ -1,0 +1,166 @@
+/* 전체 문서·미분류 화면: 사이드바 + 발송 현황 표. 가운데 목록 열이 없다 */
+.layout.board {
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+.status-board {
+  display: grid;
+  gap: var(--gap);
+}
+.status-board h1 {
+  font-size: var(--fs-title);
+  line-height: 30px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.board-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+.board-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  border-bottom: 1px solid var(--border);
+}
+.board-tabs {
+  display: flex;
+  gap: 4px;
+}
+.board-tabs button {
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.board-tabs button:hover {
+  color: var(--text);
+}
+.board-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--text);
+  color: var(--text);
+  font-weight: 500;
+}
+.board-tools .search {
+  width: 220px;
+  margin-bottom: 4px;
+}
+.board-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.board-table th,
+.board-table td {
+  padding: 0 8px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-table th {
+  height: 36px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small);
+  font-weight: 400;
+  color: var(--muted);
+}
+.board-table th button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+}
+.board-table th button:hover,
+.board-table th[aria-sort='ascending'] button,
+.board-table th[aria-sort='descending'] button {
+  color: var(--text);
+}
+.board-table td {
+  height: 48px;
+  border-bottom: 1px solid var(--rule);
+}
+.board-table tbody tr:not(.board-empty) {
+  cursor: pointer;
+}
+.board-table tbody tr:not(.board-empty):hover {
+  background: var(--raised);
+}
+/* 1440(표 1102px) 기준: 이름 36%(약 397px)는 미분류 행의 '분류 지정' 버튼 옆에서도 긴 이름이 덜 잘리는 폭이고
+   (넘치면 말줄임+title), 검토자 18%(약 198px)는 '홍길동, 김철수 외 2명'이 들어가는 폭이다. 발송 20%는 발송처 8자,
+   단계 10%는 상태 배지+거절됨이 들어가는 최소 폭, 버전 8%(88px)는 한글 5자 버전 이름(81px)이 들어가는 폭이다 */
+.board-table .col-name { width: 36%; }
+.board-table .col-version { width: 8%; }
+.board-table .col-stage { width: 10%; }
+.board-table .col-worker { width: 8%; }
+.board-table .col-reviewer { width: 18%; }
+.board-table .col-sent { width: 20%; }
+.board-table td.col-stage {
+  overflow: hidden;
+}
+.board-table td.col-stage > * {
+  vertical-align: middle;
+}
+.board-table td.col-stage .rejected-mark {
+  margin-left: 6px;
+}
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* 이름 열이 넓어 '분류 지정'은 열 끝이 아니라 이름 바로 뒤에 붙는다(이름이 넘치면 이름이 줄고 말줄임) */
+.name-cell > button:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.name-cell .assign {
+  flex: none;
+}
+.board-empty td {
+  height: 96px;
+  text-align: center;
+  color: var(--muted);
+}
+/* 미분류 문서를 열었을 때 표로 돌아가는 버튼 (카테고리 화면에는 가운데 목록이 있어 숨긴다) */
+.layout.board .back-btn {
+  display: none;
+}
+.layout.board.show-detail .back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  margin: 12px 0 0 32px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--muted);
+}
+.layout.board.show-detail .back-btn:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+/* 미분류 문서를 열면 카테고리 화면과 같은 읽기 폭(920px)을 유지하되 가운데에 둔다 */
+.layout.board .doc-panel {
+  margin-inline: auto;
+}

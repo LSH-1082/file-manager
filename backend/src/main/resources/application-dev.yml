@@ -1,0 +1,8 @@
+# MySQL 없이 개발·측정할 때 쓴다: --spring.profiles.active=dev (운영 기본은 MySQL)
+spring:
+  datasource:
+    # H2 파일 DB(MySQL 모드). 데이터는 fileManager 데이터 디렉터리(backend/data) 아래에 남는다
+    url: jdbc:h2:file:./data/db/fileManager;MODE=MySQL;DATABASE_TO_LOWER=TRUE   # 환경변수 FILEMANAGER_DB_URL과 무관하게 고정
+    driver-class-name: org.h2.Driver   # MySQL 드라이버 대신 H2를 쓴다
+    username: sa
+    password: ''

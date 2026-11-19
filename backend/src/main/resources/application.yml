@@ -1,0 +1,32 @@
+server:
+  port: 8080                # HTTP 포트(--server.port로 덮어쓴다)
+  tomcat:
+    max-swallow-size: -1    # 업로드 한도 초과 시 연결 리셋 대신 413 응답
+spring:
+  datasource:
+    # 외부 MySQL 8. 환경변수나 --spring.datasource.*로 바꾼다
+    url: ${FILEMANAGER_DB_URL:jdbc:mysql://localhost:3306/fileManager?createDatabaseIfNotExist=true&connectionTimeZone=UTC&characterEncoding=UTF-8}
+    username: ${FILEMANAGER_DB_USERNAME:fileManager}   # DB 사용자
+    password: ${FILEMANAGER_DB_PASSWORD:fileManager1!} # DB 비밀번호
+  jpa:
+    open-in-view: false     # 요청이 끝난 뒤 지연 로딩을 하지 않는다
+    hibernate:
+      ddl-auto: none        # 스키마는 Flyway(db/migration)만 만든다
+    properties:
+      hibernate:
+        default_batch_fetch_size: 100   # 목록의 버전 파일·검토자·파일 행을 N+1이 아니라 묶어서 읽는다
+        jdbc:
+          time_zone: UTC    # 시각은 UTC로 저장한다
+        type:
+          preferred_uuid_jdbc_type: CHAR   # UUID를 CHAR(36)으로 저장한다
+  flyway:
+    enabled: true           # 시작할 때 db/migration을 적용한다
+  servlet:
+    multipart:
+      max-file-size: 100MB      # 파일 하나의 업로드 한도
+      max-request-size: 210MB   # 요청 하나의 업로드 한도
+fileManager:
+  # 파일 본문 저장 루트. 상대 경로는 실행 디렉터리(bootRun이면 backend/) 기준이다
+  storage-root: ${FILEMANAGER_STORAGE_ROOT:./data/storage}
+  cors:
+    allowed-origins: http://localhost:5173,http://localhost:4173   # 프런트 개발·미리보기 주소

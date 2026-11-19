@@ -1,0 +1,11 @@
+node_modules
+dist
+.taste-skill
+.claude
+Dockerfile
+.dockerignore
+*.log
+*.local
+.vscode
+.idea
+.DS_Store
