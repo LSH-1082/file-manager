@@ -3,7 +3,45 @@
 .idea/
 .vscode/
 node_modules/
-frontend/dist/
+
+# 백엔드 빌드·IDE
+backend/HELP.md
 backend/.gradle/
 backend/build/
+backend/bin/
+backend/out/
 backend/data/
+backend/.apt_generated/
+backend/.classpath
+backend/.factorypath
+backend/.project
+backend/.settings/
+backend/.springBeans
+backend/.sts4-cache/
+backend/nbproject/private/
+backend/nbbuild/
+backend/dist/
+backend/nbdist/
+backend/.nb-gradle/
+*.iws
+*.iml
+*.ipr
+
+# 프런트 빌드·로그
+frontend/dist/
+frontend/dist-ssr/
+frontend/logs/
+frontend/*.local
+*.log
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# AI 도구 설정·산출물
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+claude.zip
+.taste-skill/
