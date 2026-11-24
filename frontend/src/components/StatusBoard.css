@@ -98,12 +98,13 @@
 /* 1440(표 1102px) 기준: 이름 36%(약 397px)는 미분류 행의 '분류 지정' 버튼 옆에서도 긴 이름이 덜 잘리는 폭이고
    (넘치면 말줄임+title), 검토자 18%(약 198px)는 '홍길동, 김철수 외 2명'이 들어가는 폭이다. 발송 20%는 발송처 8자,
    단계 10%는 상태 배지+거절됨이 들어가는 최소 폭, 버전 8%(88px)는 한글 5자 버전 이름(81px)이 들어가는 폭이다 */
-.board-table .col-name { width: 36%; }
+.board-table .col-name { width: 30%; }
 .board-table .col-version { width: 8%; }
 .board-table .col-stage { width: 10%; }
+.board-table .col-due { width: 10%; }
 .board-table .col-worker { width: 8%; }
-.board-table .col-reviewer { width: 18%; }
-.board-table .col-sent { width: 20%; }
+.board-table .col-reviewer { width: 16%; }
+.board-table .col-sent { width: 18%; }
 .board-table td.col-stage {
   overflow: hidden;
 }

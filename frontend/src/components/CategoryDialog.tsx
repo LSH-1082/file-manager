@@ -22,7 +22,7 @@ export default function CategoryDialog({ category, onClose, onSaved }: Props) {
     const trimmed = name.trim()
     if (!trimmed) return setError('이름을 입력하세요.')
     const duplicate = categories.some((c) => c.id !== category?.id && c.name === trimmed)
-    if (duplicate) return setError('같은 이름의 카테고리가 있습니다.')
+    if (duplicate) return setError('같은 이름의 문서가 있습니다.')
     try {
       const input = { name: trimmed }
       if (category) {
@@ -39,7 +39,7 @@ export default function CategoryDialog({ category, onClose, onSaved }: Props) {
 
   return (
     <Modal
-      title={category ? '카테고리 수정' : '새 카테고리'}
+      title={category ? '문서 수정' : '새 문서'}
       onClose={onClose}
       footer={
         <>
@@ -54,7 +54,7 @@ export default function CategoryDialog({ category, onClose, onSaved }: Props) {
     >
       <form id="category-form" className="form" onSubmit={submit}>
         <label className="field">
-          <span>이름</span>
+          <span>문서 이름</span>
           <input
             autoFocus
             value={name}

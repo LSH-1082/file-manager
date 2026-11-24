@@ -20,6 +20,11 @@ export function isUncategorized(categories: Category[], doc: Doc): boolean {
   return !categories.some((c) => c.id === doc.categoryId)
 }
 
+/** 숨긴 카테고리의 문서. 미분류 문서는 숨길 수 없다 */
+export function isHiddenDoc(categories: Category[], doc: Doc): boolean {
+  return categories.some((c) => c.id === doc.categoryId && c.hidden)
+}
+
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleString('ko-KR', {
     year: 'numeric',

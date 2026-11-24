@@ -26,6 +26,8 @@
   --hue: #1d5fbf;
   --hue-soft: #e8eff9;
   --negative: #c4242a;
+  /* 발송 기한 2~3일 남은 문서 제목(노랑). 흰 바탕 글자 대비 4.5:1 이상 */
+  --due-warn: #8a6a00;
   --pill-warning-bg: #fffbeb;
   --pill-warning-line: #fde68a;
   --pill-warning-ink: #92400e;
@@ -63,24 +65,25 @@
   -webkit-font-smoothing: antialiased;
   /*
    * 진행 단계 색(사용자 결정: 단계마다 색이 달라야 한다). 글자(ink)와 옅은 바탕(bg)은 대비 4.5:1 이상.
-   * 작업중=슬레이트, 검토대기=호박, 검토중=파랑, 발송대기=초록, 발송=잉크. 보라·그라데이션 없음.
+   * 파스텔 바탕: 작업중=파랑, 검토대기=청록, 검토중=보라, 발송대기=분홍(라벤더 쪽), 발송=초록.
+   * 경고 색(빨강·주황·노랑, --negative·--pill-warning-*)과 겹치지 않게 골랐다.
    * 점(-dot)은 사이드바 바탕(--ground)에서 3:1 이상인 같은 계열 채움색.
    */
-  --stage-working-ink: #52596a;
-  --stage-working-bg: #eceef2;
-  --stage-queued-ink: #7a4f00;
-  --stage-queued-bg: #fbefd0;
-  --stage-reviewing-ink: #1a56a8;
-  --stage-reviewing-bg: #e1edfb;
-  --stage-ready-ink: #17703d;
-  --stage-ready-bg: #dff2e6;
-  --stage-sent-ink: #ffffff;
-  --stage-sent-bg: #1f2328;
-  --stage-working-dot: #6b7385;
-  --stage-queued-dot: #b07800;
-  --stage-reviewing-dot: #2563c9;
-  --stage-ready-dot: #1e8a4c;
-  --stage-sent-dot: #1f2328;
+  --stage-working-ink: #1d4f9c;
+  --stage-working-bg: #dbe8fb;
+  --stage-queued-ink: #0b625c;
+  --stage-queued-bg: #d3f1ef;
+  --stage-reviewing-ink: #5b3aa6;
+  --stage-reviewing-bg: #e9e1fa;
+  --stage-ready-ink: #94286f;
+  --stage-ready-bg: #f8def0;
+  --stage-sent-ink: #1b6b36;
+  --stage-sent-bg: #dcf2e1;
+  --stage-working-dot: #3b78d8;
+  --stage-queued-dot: #1a8a82;
+  --stage-reviewing-dot: #8461d4;
+  --stage-ready-dot: #c9509f;
+  --stage-sent-dot: #2a8c4c;
   color-scheme: light;
   word-break: keep-all;
   overflow-wrap: break-word;
@@ -104,6 +107,7 @@
     --hue: #6ea2f0;
     --hue-soft: #17233a;
     --negative: #e5566f;
+    --due-warn: #f0c419;
     --pill-warning-bg: #2b2414;
     --pill-warning-line: #4a3b17;
     --pill-warning-ink: #e5a93b;
@@ -111,21 +115,21 @@
     --pill-negative-ink: #e5566f;
     --paper-edge: #3a3a3c;
     --scrim: rgba(0, 0, 0, 0.6);
-    --stage-working-ink: #b6bdc9;
-    --stage-working-bg: #2b3038;
-    --stage-queued-ink: #ecc15a;
-    --stage-queued-bg: #3a2f14;
-    --stage-reviewing-ink: #8fbdf5;
-    --stage-reviewing-bg: #162a45;
-    --stage-ready-ink: #6fd69a;
-    --stage-ready-bg: #13301f;
-    --stage-sent-ink: #14171a;
-    --stage-sent-bg: #eceef1;
-    --stage-working-dot: #8c94a3;
-    --stage-queued-dot: #ecc15a;
-    --stage-reviewing-dot: #8fbdf5;
-    --stage-ready-dot: #6fd69a;
-    --stage-sent-dot: #eceef1;
+    --stage-working-ink: #9cc2f7;
+    --stage-working-bg: #172a47;
+    --stage-queued-ink: #79d6cc;
+    --stage-queued-bg: #11332f;
+    --stage-reviewing-ink: #c3adf5;
+    --stage-reviewing-bg: #2a2147;
+    --stage-ready-ink: #f0a6d8;
+    --stage-ready-bg: #3a1a33;
+    --stage-sent-ink: #7fd89a;
+    --stage-sent-bg: #14301d;
+    --stage-working-dot: #6ea2f0;
+    --stage-queued-dot: #4fc0b4;
+    --stage-reviewing-dot: #a688ea;
+    --stage-ready-dot: #df80c0;
+    --stage-sent-dot: #5cc07c;
     color-scheme: dark;
   }
 }
@@ -340,6 +344,25 @@ table {
 .category-item:hover .item-actions,
 .category-item:focus-within .item-actions {
   display: flex;
+}
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.section-toggle:hover {
+  color: var(--text);
+}
+.section-toggle svg {
+  transition: transform 0.15s;
+}
+.section-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
 }
 .section-header {
   display: flex;
@@ -599,7 +622,7 @@ textarea::placeholder {
 /*
  * 단계 표식 하나: 작업중 / 검토대기 / 검토중 / 발송대기 / 발송(지금 단계).
  * 모양(높이 20px, 외곽선 1px, 모서리 4px, 여백, 글자 크기)은 모두 같고 글자와 절제된 색만 다르다.
- * 단계마다 색이 다르다(--stage-*): 작업중 슬레이트, 검토대기 호박, 검토중 파랑, 발송대기 초록, 발송 잉크(+ 발송일을 옆에).
+ * 단계마다 색이 다르다(--stage-*): 작업중 파랑, 검토대기 청록, 검토중 보라, 발송대기 분홍, 발송 초록(+ 발송일을 옆에).
  */
 .stage-badge {
   display: inline-block;
@@ -680,8 +703,8 @@ textarea::placeholder {
   --t: var(--stage-ready-bg);
 }
 .step.s-sent {
-  --c: var(--stage-sent-bg);
-  --t: var(--stage-working-bg);
+  --c: var(--stage-sent-ink);
+  --t: var(--stage-sent-bg);
 }
 .step::before {
   content: '';

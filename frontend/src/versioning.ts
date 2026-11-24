@@ -5,12 +5,13 @@ export function latestVersion(doc: Doc): DocVersion {
   return doc.versions[doc.versions.length - 1]
 }
 
-export function currentFile(version: DocVersion): FileRev {
+/** 현재(마지막) 파일. 원본을 아직 안 올린 v1(파일 0개)이면 undefined */
+export function currentFile(version: DocVersion): FileRev | undefined {
   return version.files[version.files.length - 1]
 }
 
 /** 수정대조표의 기준(원본) 파일. 모든 버전에서 files[0]이다(v1은 처음 올린 파일, v2부터는 직전 버전 제출본) */
-export function baseFile(version: DocVersion): FileRev {
+export function baseFile(version: DocVersion): FileRev | undefined {
   return version.files[0]
 }
 
@@ -50,6 +51,12 @@ export function reviewersOf(version: DocVersion): string[] {
   return (version.review ?? version.reviewStart)?.reviewers ?? []
 }
 
+/** 검토자 요약: shown명까지 이름을 보이고 나머지는 '외 n명'. 없으면 빈 문자열(전체 이름은 부르는 쪽 title로) */
+export function reviewerSummary(names: string[], shown = 2): string {
+  if (names.length <= shown) return names.join(', ')
+  return `${names.slice(0, shown).join(', ')} 외 ${names.length - shown}명`
+}
+
 /** 문서에서 가장 최근에 발송된 버전. 없으면 undefined */
 export function lastSentVersion(doc: Doc): DocVersion | undefined {
   return [...doc.versions].reverse().find((v) => v.status === 'sent')
@@ -57,7 +64,7 @@ export function lastSentVersion(doc: Doc): DocVersion | undefined {
 
 /** 버전의 현재 수정대조표 파일 */
 export function revisionFile(version: DocVersion): FileRev | undefined {
-  return currentFile(version).revision
+  return currentFile(version)?.revision
 }
 
 /** 현재 수정본에 대조표 파일이 있는지 */
@@ -90,7 +97,7 @@ export function stageStep(stage: Stage) {
 
 /** 결정 기록의 대상이 지금의 현재 수정본·대조표와 같은지 */
 function matchesTarget(version: DocVersion, mark: { fileId: string; revisionId?: string }) {
-  return mark.fileId === currentFile(version).id && mark.revisionId === revisionFile(version)?.id
+  return mark.fileId === currentFile(version)?.id && mark.revisionId === revisionFile(version)?.id
 }
 
 /** 승인 기록. 없으면 undefined */
@@ -132,7 +139,7 @@ export const REJECTED_NEEDS_REVISION = '거절된 뒤 수정본을 올려야 작
 export function needsRevisionSinceRejection(version: DocVersion): boolean {
   if (!isRejected(version) || !version.review) return false
   if (version.files.length < 2) return true
-  return !(Date.parse(currentFile(version).uploadedAt) > Date.parse(version.review.reviewedAt))
+  return !(Date.parse(currentFile(version)!.uploadedAt) > Date.parse(version.review.reviewedAt))
 }
 
 /** 작업자·검토자 이름의 최대 길이 */
@@ -154,6 +161,9 @@ export function reviewerNames(raw: string[]): { names: string[]; error: string |
   return { names, error: null }
 }
 
+/** 서버 409 문구와 같다. 파일 없이 만든 v1은 원본을 올려야 작업완료할 수 있다 */
+export const NO_ORIGINAL = '원본을 올려야 작업완료할 수 있습니다.'
+
 const NO_REVISION = '현재 수정본에 수정대조표가 없습니다. 대조표를 붙여야 합니다.'
 
 /** 작업완료를 할 수 없는 이유. 작업중 단계에서만 할 수 있다. 가능하면 null */
@@ -161,6 +171,7 @@ export function workBlocker(doc: Doc, version: DocVersion): string | null {
   if (version.status !== 'working') return '이미 발송된 버전입니다.'
   const stage = versionStage(version)
   if (stage !== 'working') return `이미 ${STAGE_LABEL[stage]} 단계입니다.`
+  if (version.files.length === 0) return NO_ORIGINAL
   // v1은 원본만으로 작업완료할 수 있고, v2부터는 수정본이 하나 이상 있어야 한다
   if (ownFiles(version).length === 0) return '수정본을 올려야 작업완료할 수 있습니다.'
   if (needsRevisionSinceRejection(version)) return REJECTED_NEEDS_REVISION
@@ -328,11 +339,11 @@ export function fileRevLabel(version: DocVersion, index: number) {
 
 /**
  * 파일 사슬·목록 카드의 파일 순서. 모든 단계에서 같다: 맨 위 최신 수정본, 가운데 그 사이 수정본(최신부터), 맨 아래 원본.
- * 수정본이 없으면 원본 한 줄만 맨 위(top)에 있다.
+ * 수정본이 없으면 원본 한 줄만 맨 위(top)에 있다. 파일이 0개면 top도 없다.
  */
-export function chainFiles(version: DocVersion): { top: FileRev; middle: FileRev[]; base: FileRev | null } {
+export function chainFiles(version: DocVersion): { top: FileRev | undefined; middle: FileRev[]; base: FileRev | null } {
   if (version.files.length < 2) return { top: version.files[0], middle: [], base: null }
-  return { top: currentFile(version), middle: version.files.slice(1, -1).reverse(), base: baseFile(version) }
+  return { top: currentFile(version)!, middle: version.files.slice(1, -1).reverse(), base: baseFile(version)! }
 }
 
 /** 맨 위 파일의 이름표: 수정본이 있으면 발송 '제출본', 발송대기 '발송예정', 그 밖 '현재 수정본'. 수정본이 없으면 발송 '제출본', 그 밖 '원본' */
