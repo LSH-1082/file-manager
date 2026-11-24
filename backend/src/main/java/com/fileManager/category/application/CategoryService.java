@@ -85,6 +85,13 @@ public class CategoryService {
         return c;
     }
 
+    /** 숨김 여부만 바꾼다. 없으면 404. */
+    public Category setHidden(String id, boolean hidden) {
+        Category c = findLocked(Ids.parse(id, NOT_FOUND));
+        c.setHidden(hidden);
+        return c;
+    }
+
     /** 없는 id도 UUID가 아닌 값도 조용히 끝난다(204). */
     public void delete(String id) {
         UUID uuid = Ids.parseOrNull(id);

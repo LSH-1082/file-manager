@@ -27,6 +27,10 @@ public class Category {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** 사이드바에서 숨김. 이름 변경(update)과 무관하다. */
+    @Column(nullable = false)
+    private boolean hidden;
+
     protected Category() {}
 
     public Category(String name, String dirName) {
@@ -41,8 +45,11 @@ public class Category {
 
     public void moveDir(String dirName) { this.dirName = dirName; }
 
+    public void setHidden(boolean hidden) { this.hidden = hidden; }
+
     public UUID getId() { return id; }
     public String getName() { return name; }
     public String getDirName() { return dirName; }
     public Instant getCreatedAt() { return createdAt; }
+    public boolean isHidden() { return hidden; }
 }
