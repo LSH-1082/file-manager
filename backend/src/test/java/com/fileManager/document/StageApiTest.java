@@ -522,4 +522,15 @@ class StageApiTest extends ApiTestSupport {
         doc = ok(cancel(doc, "workDone"));
         assertEquals("queued", stage(workDone(doc)));
     }
+
+    @Test
+    void workDoneNeedsOriginalWhenVersionHasNoFiles() {
+        Response r = multipart(HttpMethod.POST, "/api/documents", Map.of("categoryId", category("빈"), "worker", "김"), Map.of());
+        assertEquals(201, r.status(), r.text());
+        JsonNode doc = r.json();
+        conflict(post(url(doc, "/work-done"), Map.of()), "원본을 올려야 작업완료할 수 있습니다.");
+        assertEquals("working", stage(reload(doc)));
+        ok(multipart(HttpMethod.POST, url(doc, "/revisions"), Map.of("worker", "김"), Map.of("file", Part.of("a.pdf", "x"))));
+        assertEquals("queued", stage(workDone(doc)));
+    }
 }

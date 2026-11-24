@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { DocUploader } from './components/DocPanel'
 import DocView from './components/DocView'
+import GanttView from './components/GanttView'
 import { IconBack } from './components/icons'
 import Overview from './components/Overview'
 import ResourcePanel from './components/ResourcePanel'
@@ -9,7 +10,7 @@ import StatusBoard from './components/StatusBoard'
 import VersionList from './components/VersionList'
 import { useData } from './store/useData'
 import type { CategoryFilter, Doc } from './types'
-import { categoryPath, isUncategorized } from './utils'
+import { categoryPath, isHiddenDoc, isUncategorized } from './utils'
 import { categoryDoc } from './versioning'
 
 type PanelMode =
@@ -24,17 +25,20 @@ export default function App() {
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
   const [mode, setMode] = useState<PanelMode>({ kind: 'view' })
 
-  const visibleDocs = useMemo(
-    () => (filter.kind === 'uncategorized' ? docs.filter((d) => isUncategorized(categories, d)) : docs),
-    [docs, categories, filter],
-  )
+  // 전체 문서 화면은 숨긴 카테고리의 문서를 표에서 빼고 아래 '숨긴 문서' 섹션에 따로 보인다
+  const [visibleDocs, hiddenDocs] = useMemo(() => {
+    if (filter.kind === 'uncategorized') return [docs.filter((d) => isUncategorized(categories, d)), []]
+    return [docs.filter((d) => !isHiddenDoc(categories, d)), docs.filter((d) => isHiddenDoc(categories, d))]
+  }, [docs, categories, filter])
 
   const listTitle =
     filter.kind === 'all'
       ? '전체 문서'
       : filter.kind === 'uncategorized'
         ? '미분류'
-        : categoryPath(categories, filter.id) || '카테고리'
+        : filter.kind === 'schedule'
+          ? '일정'
+          : categoryPath(categories, filter.id) || '카테고리'
 
   const defaultCategoryId = filter.kind === 'category' ? filter.id : null
   const filterCategory = filter.kind === 'category' ? categories.find((c) => c.id === filter.id) : undefined
@@ -45,6 +49,7 @@ export default function App() {
     setFilter(next)
     setSelectedVersionId(null)
     if (next.kind === 'category') setSelectedId(categoryDoc(docs, next.id)?.id ?? null)
+    else if (next.kind === 'schedule') setSelectedId(null)
     else if (mode.kind === 'view') setSelectedId(null)
     // 업로드 중에 다른 분류로 옮기면 그 분류의 문서를 보여준다
     if (mode.kind === 'upload') setMode({ kind: 'view' })
@@ -61,8 +66,10 @@ export default function App() {
 
   // 좁은 화면에서는 목록과 상세 중 한 영역만 보인다
   // 문서가 없는 카테고리를 고르면 상세 영역에 첫 파일 올리기 화면이 바로 열린다
-  const firstUpload = mode.kind === 'view' && !!filterCategory && !selectedDoc
-  const showDetail = mode.kind !== 'view' || !!selectedDoc || firstUpload
+  // 일정 화면은 가운데·오른쪽 전체를 간트로 채우므로 상세·첫 업로드 경로를 타지 않는다
+  const isSchedule = filter.kind === 'schedule'
+  const firstUpload = !isSchedule && mode.kind === 'view' && !!filterCategory && !selectedDoc
+  const showDetail = !isSchedule && (mode.kind !== 'view' || !!selectedDoc || firstUpload)
 
   const openUpload = (files: File[] = []) =>
     setMode({ kind: 'upload', file: files[0] ?? null, droppedMany: files.length > 1, key: Date.now() })
@@ -115,8 +122,19 @@ export default function App() {
             {listTitle}
           </button>
         )}
-        <div className="detail-body" key={mode.kind === 'view' ? (selectedDoc?.id ?? (firstUpload ? `first-${filterCategory!.id}` : 'board')) : mode.kind}>
-          {mode.kind === 'resources' && filterCategory ? (
+        <div
+          className="detail-body"
+          key={
+            isSchedule
+              ? 'schedule'
+              : mode.kind === 'view'
+                ? (selectedDoc?.id ?? (firstUpload ? `first-${filterCategory!.id}` : 'board'))
+                : mode.kind
+          }
+        >
+          {isSchedule ? (
+            <GanttView />
+          ) : mode.kind === 'resources' && filterCategory ? (
             <ResourcePanel key={filterCategory.id} category={filterCategory} onClose={() => setMode({ kind: 'view' })} />
           ) : mode.kind === 'upload' ? (
             <DocUploader
@@ -155,7 +173,7 @@ export default function App() {
           ) : docs.length === 0 ? (
             <Overview onCreate={openUpload} />
           ) : (
-            <StatusBoard docs={visibleDocs} scopeLabel={listTitle} onSelect={selectDoc} onCreate={openUpload} onAssigned={assigned} />
+            <StatusBoard docs={visibleDocs} hiddenDocs={hiddenDocs} scopeLabel={listTitle} onSelect={selectDoc} onCreate={openUpload} onAssigned={assigned} />
           )}
         </div>
       </main>

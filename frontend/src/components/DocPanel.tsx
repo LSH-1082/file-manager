@@ -68,7 +68,7 @@ export function CategorySelect({
       </select>
       <button type="button" className="btn" onClick={() => setCreating(true)}>
         <IconPlus size={14} />
-        새 카테고리
+        새 문서
       </button>
       {creating && (
         <CategoryDialog
@@ -131,12 +131,15 @@ export function DocUploader({ initialFile, droppedMany, defaultCategoryId, onUpl
   const nextLabel = !startsVersion ? versionLabel(latest!) : (!nameInvalid && storedVersionName(nextNumber, versionName)) || defaultName
   const nextRev = !latest ? '원본' : latest.status === 'working' ? fileRevLabel(latest, latest.files.length) : '시작'
   // 기존 문서에 올리면 수정본이므로 수정대조표가 함께 있어야 한다. 대조 기준(원본) 파일 이름
-  const pairBase = latest?.status === 'working' ? baseFile(latest).fileName : null
+  // 파일 0개인 버전(파일 없이 만든 v1)은 대조 기준이 없어 파일 하나가 원본으로 올라간다
+  const pairBase = latest?.status === 'working' ? (baseFile(latest)?.fileName ?? null) : null
+  // 새 문서는 파일 없이 만들 수 있다. 작업중 버전에 올릴 때만 파일이 필수다
+  const fileRequired = latest?.status === 'working'
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!categoryId) return setError('문서를 올릴 분류를 고르세요. 분류 하나가 문서 하나입니다.')
-    if (!newVersionOnly && !file) return setError('업로드할 파일을 고르세요.')
+    if (fileRequired && !file) return setError('업로드할 파일을 고르세요.')
     if (lock) return setError(lock)
     if (pairBase && !revision) return setError('수정본은 수정대조표와 함께 올려야 등록됩니다.')
     const workerInvalid = workerNameError(worker)
@@ -151,9 +154,9 @@ export function DocUploader({ initialFile, droppedMany, defaultCategoryId, onUpl
       let doc: Doc
       if (!target || !latest) {
         // 새 문서의 제목은 카테고리 이름이다
-        doc = await addDoc({ title: category?.name || baseName(file!.name), categoryId }, file!, versionName, worker)
+        doc = await addDoc({ title: category?.name || (file ? baseName(file.name) : ''), categoryId }, file ?? undefined, versionName, worker)
       } else if (latest.status === 'working') {
-        doc = await uploadWorkingFile(target.id, file!, revision!, worker)
+        doc = await uploadWorkingFile(target.id, file!, revision ?? undefined, worker)
       } else {
         doc = await startVersion(target.id, versionName, worker)
       }
@@ -177,9 +180,9 @@ export function DocUploader({ initialFile, droppedMany, defaultCategoryId, onUpl
           <button
             type="submit"
             className="btn primary"
-            disabled={uploading || (!newVersionOnly && !file) || !categoryId || !!lock || (!!pairBase && !revision) || !worker.trim()}
+            disabled={uploading || (fileRequired && !file) || !categoryId || !!lock || (!!pairBase && !revision) || !worker.trim()}
           >
-            {uploading ? (newVersionOnly ? '시작 중…' : '업로드 중…') : newVersionOnly ? '새 버전 시작' : '업로드'}
+            {uploading ? (newVersionOnly ? '시작 중…' : '업로드 중…') : newVersionOnly ? '새 버전 시작' : !latest && !file ? '파일 없이 만들기' : '업로드'}
           </button>
         </div>
       </header>
@@ -198,11 +201,13 @@ export function DocUploader({ initialFile, droppedMany, defaultCategoryId, onUpl
             </strong>
             <span className="muted">
               {!latest
-                ? '이 분류의 첫 파일입니다. 올린 파일이 문서의 원본이 됩니다.'
+                ? '이 분류의 첫 문서입니다. 올린 파일이 문서의 원본이 됩니다. 파일 없이 만들고 원본은 나중에 올려도 됩니다.'
                 : lock && latest.status === 'working'
                   ? lock
+                  : latest.status === 'working' && latest.files.length === 0
+                  ? `${versionLabel(latest)}의 원본으로 올라갑니다.`
                   : latest.status === 'working'
-                  ? `발송 전인 버전(${versionLabel(latest)})에 수정본으로 올라갑니다. 지금 파일(${currentFile(latest).fileName})은 이력에 남습니다.`
+                  ? `발송 전인 버전(${versionLabel(latest)})에 수정본으로 올라갑니다. 지금 파일(${currentFile(latest)?.fileName})은 이력에 남습니다.`
                   : `${versionLabel(latest)} 제출본을 원본으로 새 버전(${nextLabel})을 만듭니다. 수정본은 만든 뒤 올립니다.`}
             </span>
           </span>
@@ -301,7 +306,7 @@ export function DocUploader({ initialFile, droppedMany, defaultCategoryId, onUpl
           <p>
             <strong>파일을 끌어다 놓거나 클릭해서 고르세요</strong>
           </p>
-          <p className="muted">파일은 하나만 올립니다 · .hwpx·.pdf 파일만 올릴 수 있습니다</p>
+          <p className="muted">파일은 하나만 올립니다 · .hwpx·.pdf 파일만 올릴 수 있습니다{!latest && ' · 선택 사항'}</p>
         </Dropzone>
       )}
       {manyNotice && !newVersionOnly && <p className="hint">파일은 하나만 올릴 수 있어 끌어다 놓은 파일 중 첫 파일만 골랐습니다.</p>}

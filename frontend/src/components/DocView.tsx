@@ -1,9 +1,13 @@
+import './GanttView.css'
 import { useId, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { SENT_TO_MAX } from '../api/storage'
 import { downloadFile } from '../fileActions'
+import { dueTitleColor, dueWarnText, nextDue } from '../deadline'
 import { useData } from '../store/useData'
 import type { Doc, DocVersion, FileRev } from '../types'
+import { formatPeriod } from './ganttScale'
+import { groupColorClass, groupOf, sortGroups } from './scheduleModel'
 import { categoryPath, docTitle, fileExt, formatDate, isUncategorized } from '../utils'
 import {
   availableCancel,
@@ -46,6 +50,7 @@ import {
   lastReviewRound,
   reviewCopiesOf,
   REVIEW_RESULT_LABEL,
+  reviewersOf,
 } from '../versioning'
 import AssignCategoryDialog from './AssignCategoryDialog'
 import { FileThumb } from './files'
@@ -66,7 +71,7 @@ interface Props {
 }
 
 export default function DocView({ doc, versionId, onVersionChange, onDeleted, onAssigned }: Props) {
-  const { categories } = useData()
+  const { categories, schedules } = useData()
   const [assigning, setAssigning] = useState(false)
   const category = categories.find((c) => c.id === doc.categoryId)
   const version = doc.versions.find((v) => v.id === versionId) ?? latestVersion(doc)
@@ -90,9 +95,12 @@ export default function DocView({ doc, versionId, onVersionChange, onDeleted, on
               '미분류'
             )}
           </div>
-          <h2 className="doc-title">{title}</h2>
+          <h2 className="doc-title" style={{ color: dueTitleColor(nextDue(doc, schedules)) }}>
+            {title}
+          </h2>
           <div className="doc-dates num">
-            등록 {formatDate(doc.createdAt)} · 수정 {formatDate(doc.updatedAt)}
+            <div>등록 {formatDate(doc.createdAt)}</div>
+            <div>수정 {formatDate(doc.updatedAt)}</div>
           </div>
         </div>
         {/* 분류가 없는 문서만 카테고리에 넣을 수 있다. 분류가 있는 문서의 이동은 없다 */}
@@ -103,9 +111,41 @@ export default function DocView({ doc, versionId, onVersionChange, onDeleted, on
         )}
       </header>
 
+      <DocSchedules doc={doc} />
       <VersionSection key={version.id} doc={doc} version={version} onVersionChange={onVersionChange} onDeleted={onDeleted} />
       {assigning && <AssignCategoryDialog doc={doc} onClose={() => setAssigning(false)} onAssigned={onAssigned} />}
     </article>
+  )
+}
+
+/** 이 문서가 들어 있는 일정(발송 문서)들. 발송 문서가 없으면 그리지 않는다 */
+function DocSchedules({ doc }: { doc: Doc }) {
+  const { schedules, scheduleGroups } = useData()
+  const groups = sortGroups(scheduleGroups)
+  const mine = schedules
+    .filter((s) => s.documentId === doc.id)
+    .sort((a, b) => (a.plannedSendDate < b.plannedSendDate ? -1 : a.plannedSendDate > b.plannedSendDate ? 1 : 0))
+  if (mine.length === 0) return null
+  return (
+    <section className="doc-schedules" aria-labelledby={`doc-schedules-${doc.id}`}>
+      <h3 id={`doc-schedules-${doc.id}`}>일정</h3>
+      <ul>
+        {mine.map((s) => {
+          const group = groupOf(s, groups)
+          const warn = dueWarnText(s, doc)
+          return (
+            <li key={s.id}>
+              <span className={`doc-schedule-swatch ${group ? groupColorClass(group.colorNo) : 'none'}`} aria-hidden="true" />
+              <span className="doc-schedule-name">{group ? group.name : '일정과 관계없음'}</span>
+              {group && <span className="doc-schedule-period num">일정 {formatPeriod(group.startDate, group.endDate)}</span>}
+              <span className="doc-schedule-period num">발송 {formatPeriod(s.startDate, s.plannedSendDate)}</span>
+              {s.memo && <span className="doc-schedule-memo">{s.memo}</span>}
+              {warn && <span className="gantt-out-tag">{warn}</span>}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 
@@ -173,7 +213,9 @@ function VersionSection({
   const isLatest = version.id === latestVersion(doc).id
   const base = baseFile(version)
   const current = currentFile(version)
-  const copies = reviewCopiesOf(version, current.id)
+  // 파일 없이 만든 v1: 원본을 올리기 전이라 파일이 0개다
+  const empty = !base || !current
+  const copies = current ? reviewCopiesOf(version, current.id) : []
   const revised = revisedFiles(version)
   const { top, middle } = chainFiles(version)
   const currentRevision = revisionFile(version)
@@ -232,11 +274,11 @@ function VersionSection({
   // 지금 작업하는 파일(발송 전 버전의 마지막 파일) 또는 발송된 파일(발송된 버전의 마지막 파일)에 다는 단계 표식
   const currentMark = (
     <span className="file-sent">
-      <StageBadge stage={stage} worker={worker} />
+      <StageBadge stage={stage} worker={worker} reviewers={reviewersOf(version)} />
       {!working && <span className="num">{formatDay(version.sentAt!)}</span>}
     </span>
   )
-  const baseIsCurrent = base.id === current.id
+  const baseIsCurrent = !!base && base.id === current?.id
 
   // 거절 때 올린 검토본 줄. 검토한 파일 행의 아래에 수정대조표 줄과 같은 형식으로, 회차 순으로 붙는다
   const reviewCopyLines = (f: FileRev) =>
@@ -249,7 +291,7 @@ function VersionSection({
       </div>
     ))
 
-  const baseRow = (
+  const baseRow = base && (
     <li className={`chain-row base ${baseIsCurrent ? 'marked' : ''}`}>
       <div className="chain-line">
         <span className="chain-label">
@@ -338,7 +380,9 @@ function VersionSection({
               {working && (
                 <li className="chain-row empty-row">
                   <span className="muted">
-                    아직 수정본이 없습니다.{editable && ' 수정본을 올릴 때 그 수정본의 수정대조표를 함께 올립니다.'}
+                    {empty
+                      ? '원본이 없습니다. 원본 파일 하나를 올려야 작업완료할 수 있습니다.'
+                      : `아직 수정본이 없습니다.${editable ? ' 수정본을 올릴 때 그 수정본의 수정대조표를 함께 올립니다.' : ''}`}
                   </span>
                 </li>
               )}
@@ -346,7 +390,7 @@ function VersionSection({
             </>
           ) : (
             <>
-              {revisedRow(top, true)}
+              {revisedRow(top!, true)}
               {middle.length > 0 && (
                 <li className="chain-toggle">
                   <button type="button" aria-expanded={middleOpen} onClick={() => setMiddleOpen((open) => !open)}>
@@ -366,7 +410,7 @@ function VersionSection({
               <IconUpload size={14} />
               {nextLabel} 올리기
             </button>
-            <span className="muted small">수정본과 수정대조표를 함께 올려야 등록됩니다.</span>
+            <span className="muted small">{empty ? '파일 하나를 고르면 이 버전의 원본이 됩니다.' : '수정본과 수정대조표를 함께 올려야 등록됩니다.'}</span>
           </div>
         )}
         {lockNote && <p className="chain-lock muted small">{lockNote}</p>}
@@ -377,18 +421,20 @@ function VersionSection({
         <h3 id={`send-${version.id}`}>{working ? '발송 전 확인' : `${versionLabel(version)} 발송 완료`}</h3>
         {working ? (
           <ul className="send-checks">
-            <CheckLine ok label="원본" value={base.fileName} />
+            <CheckLine ok={!empty} quiet={empty} label="원본" value={base?.fileName ?? '없음'} />
             {/* v2부터는 원본 그대로 작업완료·발송을 할 수 없으므로 수정본이 없으면 미충족으로 보인다 */}
             <CheckLine
-              ok={!needsRevised}
-              quiet={needsRevised}
+              ok={!needsRevised && !empty}
+              quiet={needsRevised || empty}
               label="발송할 파일"
               value={
                 revised.length
-                  ? `${fileRevLabel(version, version.files.length - 1)} · ${current.fileName}`
-                  : needsRevised
+                  ? `${fileRevLabel(version, version.files.length - 1)} · ${current?.fileName}`
+                  : empty
+                    ? '원본 없음'
+                    : needsRevised
                     ? '수정본 없음'
-                    : `원본 그대로 · ${current.fileName}`
+                    : `원본 그대로 · ${current?.fileName}`
               }
             />
             {revised.length > 0 && (
@@ -410,7 +456,7 @@ function VersionSection({
                 ok
                 label="제출본"
                 lines={[
-                  { k: '파일', v: current.fileName },
+                  { k: '파일', v: current?.fileName ?? '-' },
                   { k: '대조표', v: currentRevision ? currentRevision.fileName : '-' },
                 ]}
               />
@@ -430,7 +476,7 @@ function VersionSection({
             <p className="muted small">발송된 버전은 수정할 수 없습니다.</p>
           </>
         )}
-        {needsRevised ? (
+        {needsRevised || empty ? (
           <p className="notice" role="status">
             <IconAlert size={14} />
             지금 할 일은 {nextLabel} 올리기입니다. {workStop}
@@ -502,7 +548,7 @@ function VersionSection({
       </section>
 
       {dialog === 'upload' && (
-        <RevisedUploadDialog doc={doc} version={version} label={nextLabel} baseName={base.fileName} onClose={() => setDialog(null)} />
+        <RevisedUploadDialog doc={doc} version={version} label={nextLabel} baseName={base?.fileName} onClose={() => setDialog(null)} />
       )}
       {dialog === 'work' && <WorkDoneDialog doc={doc} version={version} onClose={() => setDialog(null)} />}
       {dialog === 'review' && <ReviewDialog doc={doc} version={version} onClose={() => setDialog(null)} />}
@@ -542,7 +588,7 @@ function VersionSection({
           confirmLabel="삭제"
           message={
             <>
-              {fileRevLabel(version, version.files.length - 1)}({current.fileName})
+              {fileRevLabel(version, version.files.length - 1)}({current?.fileName})
               {currentRevision ? `과 수정대조표(${currentRevision.fileName})` : ''}를 삭제합니다.{' '}
               {revised.length > 1 ? fileRevLabel(version, version.files.length - 2) : '원본'}이 현재 수정본이 됩니다.
               {copies.length > 0 ? ` 이 수정본에 붙은 검토본 ${copies.length}개도 함께 삭제됩니다.` : ''} 되돌릴 수 없습니다.
@@ -551,7 +597,7 @@ function VersionSection({
           onConfirm={async () => {
             setStepError('')
             try {
-              await deleteLatestRevision(doc.id, current.id)
+              await deleteLatestRevision(doc.id, current!.id)
             } catch (err) {
               setStepError(err instanceof Error ? err.message : String(err))
             }
@@ -771,7 +817,7 @@ function FileLineBody({ file, mark, onDelete }: { file: FileRev; mark?: ReactNod
   )
 }
 
-/** 발송 전 버전에 수정본 하나를 그 수정대조표와 함께 올린다 */
+/** 발송 전 버전에 수정본 하나를 그 수정대조표와 함께 올린다. baseName이 없으면(파일 0개인 버전) 파일 하나만 원본으로 올린다 */
 function RevisedUploadDialog({
   doc,
   version,
@@ -782,7 +828,7 @@ function RevisedUploadDialog({
   doc: Doc
   version: DocVersion
   label: string
-  baseName: string
+  baseName: string | undefined
   onClose: () => void
 }) {
   const { uploadWorkingFile } = useData()
@@ -795,12 +841,13 @@ function RevisedUploadDialog({
   const hintId = useId()
 
   const submit = async () => {
-    if (!file || !revision) return setError('수정본과 수정대조표를 모두 고르세요.')
+    if (!file) return setError(baseName ? '수정본과 수정대조표를 모두 고르세요.' : '원본 파일을 고르세요.')
+    if (baseName && !revision) return setError('수정본과 수정대조표를 모두 고르세요.')
     const invalid = workerNameError(worker)
     if (invalid) return setError(invalid)
     setBusy(true)
     try {
-      await uploadWorkingFile(doc.id, file, revision, worker)
+      await uploadWorkingFile(doc.id, file, revision ?? undefined, worker)
       onClose()
     } catch (err) {
       setBusy(false)
@@ -817,7 +864,7 @@ function RevisedUploadDialog({
           <button type="button" className="btn" onClick={onClose}>
             취소
           </button>
-          <button type="button" className="btn primary" onClick={submit} disabled={!file || !revision || !worker.trim() || busy}>
+          <button type="button" className="btn primary" onClick={submit} disabled={!file || (!!baseName && !revision) || !worker.trim() || busy}>
             {busy ? '등록 중…' : '등록'}
           </button>
         </>
@@ -839,10 +886,22 @@ function RevisedUploadDialog({
             }}
           />
           <span className="field-hint" id={hintId}>
-            필수 · 최대 {WORKER_NAME_MAX}자 · 이 수정본을 올린 사람으로 남습니다
+            필수 · 최대 {WORKER_NAME_MAX}자 · 이 파일을 올린 사람으로 남습니다
           </span>
         </label>
-        <PairPicker label={label} baseName={baseName} file={file} revision={revision} onFile={setFile} onRevision={setRevision} />
+        {baseName ? (
+          <PairPicker label={label} baseName={baseName} file={file} revision={revision} onFile={setFile} onRevision={setRevision} />
+        ) : (
+          <FileSlot
+            title="원본 파일"
+            file={file}
+            onFile={(f) => {
+              setFile(f)
+              setError('')
+            }}
+            onReject={setError}
+          />
+        )}
         {error && <p className="form-error">{error}</p>}
       </div>
     </Modal>
@@ -896,7 +955,7 @@ function SendDialog({ doc, version, onClose }: { doc: Doc; version: DocVersion; 
     >
       <form id="send-form" className="form" onSubmit={submit}>
         <p className="muted small">
-          발송하면 버전({versionLabel(version)})이 종료되어 제출본({currentFile(version).fileName})
+          발송하면 버전({versionLabel(version)})이 종료되어 제출본({currentFile(version)?.fileName})
           {revision ? `과 수정대조표(${revision.fileName})` : ''}가 고정됩니다. 다음 버전은 이 제출본을 원본으로 시작합니다.
         </p>
         <label className="field">
@@ -968,7 +1027,7 @@ function WorkDoneDialog({ doc, version, onClose }: { doc: Doc; version: DocVersi
     >
       <form id="work-form" className="form" onSubmit={submit}>
         <p className="muted small">
-          현재 {revisedFiles(version).length > 0 ? '수정본' : '원본'}({currentFile(version).fileName})의 작업을 마쳤다고 표시합니다. 검토대기가 되고, 이어서 검토를 시작합니다.
+          현재 {revisedFiles(version).length > 0 ? '수정본' : '원본'}({currentFile(version)?.fileName})의 작업을 마쳤다고 표시합니다. 검토대기가 되고, 이어서 검토를 시작합니다.
           작업완료 뒤에는 파일을 바꿀 수 없습니다. 바꾸려면 작업완료를 취소하세요.
         </p>
         {error && <p className="form-error">{error}</p>}
@@ -1021,7 +1080,7 @@ function RejectDialog({ doc, version, onClose }: { doc: Doc; version: DocVersion
     >
       <div className="form">
         <p className="muted small">
-          검토한 {targetKind}({target.fileName}) 아래에 검토본으로 붙고, 작업중(거절됨)으로 돌아갑니다. 거절 사유는 검토본에 적습니다.
+          검토한 {targetKind}({target?.fileName}) 아래에 검토본으로 붙고, 작업중(거절됨)으로 돌아갑니다. 거절 사유는 검토본에 적습니다.
         </p>
         {reviewers.length > 1 ? (
           <label className="field">
@@ -1120,7 +1179,7 @@ function ReviewDialog({ doc, version, onClose }: { doc: Doc; version: DocVersion
     >
       <form id="review-form" className="form" onSubmit={submit}>
         <p className="muted small">
-          검토 대상은 현재 {revisedFiles(version).length > 0 ? '수정본' : '원본'}({currentFile(version).fileName})
+          검토 대상은 현재 {revisedFiles(version).length > 0 ? '수정본' : '원본'}({currentFile(version)?.fileName})
           {revision ? `과 수정대조표(${revision.fileName})` : ''}입니다. 검토를 시작하면 검토중이 되고, 이어서 승인하거나 거절합니다.
         </p>
         <div className="field">

@@ -13,6 +13,7 @@ import {
   versionLabel,
   versionStage,
   versionWorker,
+  reviewersOf,
 } from '../versioning'
 import { FileThumb } from './files'
 import { IconChevron } from './icons'
@@ -114,22 +115,27 @@ function VersionCard({ version, active, onSelect }: { version: DocVersion; activ
           </span>
           <span className="vcard-sent">
             {!sent && <StageStepper stage={stage} rejected={rejected} compact />}
-            <StageBadge stage={stage} rejected={rejected} worker={worker} />
+            <StageBadge stage={stage} rejected={rejected} worker={worker} reviewers={reviewersOf(version)} />
             {sent && <span className="num">{formatDay(version.sentAt!)}</span>}
           </span>
         </span>
-        <span className="vcard-file">
-          <FileThumb file={top} size="md" />
-          <span className="vcard-file-text">
-            <span className="vcard-file-name ellipsis" title={top.fileName}>
-              {top.fileName}
-            </span>
-            <span className="vcard-file-meta num">
-              {topStrong ? <strong className="vcard-file-sent">{topLabel}</strong> : <span>{topLabel}</span>}
-              <span>{formatDay(top.uploadedAt)}</span>
+        {/* 파일 없이 만든 v1은 원본을 올리기 전까지 파일 줄 대신 안내만 */}
+        {top ? (
+          <span className="vcard-file">
+            <FileThumb file={top} size="md" />
+            <span className="vcard-file-text">
+              <span className="vcard-file-name ellipsis" title={top.fileName}>
+                {top.fileName}
+              </span>
+              <span className="vcard-file-meta num">
+                {topStrong ? <strong className="vcard-file-sent">{topLabel}</strong> : <span>{topLabel}</span>}
+                <span>{formatDay(top.uploadedAt)}</span>
+              </span>
             </span>
           </span>
-        </span>
+        ) : (
+          <span className="vcard-file muted">원본이 없습니다</span>
+        )}
       </button>
       {base && (
         <div className="vcard-more">

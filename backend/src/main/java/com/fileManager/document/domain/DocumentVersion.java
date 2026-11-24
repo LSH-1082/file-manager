@@ -144,6 +144,10 @@ public class DocumentVersion {
 
     public boolean sent() { return sentAt != null; }
 
+    /**
+     * 현재 파일(마지막)과 원본(seq 0). 파일 없이 만든 v1은 files가 비어 있으므로 부르기 전에 getFiles().isEmpty()를 본다.
+     * 결정·검토본·거절 판정은 작업완료(파일 0개면 409) 뒤에만 오므로 비어 있지 않다.
+     */
     public VersionFile current() { return files.get(files.size() - 1); }
 
     public VersionFile original() { return files.get(0); }

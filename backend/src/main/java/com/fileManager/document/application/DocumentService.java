@@ -46,6 +46,8 @@ public class DocumentService {
     private static final String CATEGORY_NOT_FOUND = "카테고리를 찾을 수 없습니다.";
     private static final String CATEGORY_HAS_DOC = "이미 문서가 있는 카테고리입니다.";
     private static final String PAIR = "수정본은 수정대조표와 함께 올려야 등록됩니다.";
+    private static final String ORIGINAL_ONLY = "원본 파일 하나만 올리세요.";
+    private static final String ORIGINAL_REQUIRED = "원본 파일을 올리세요.";
 
     private final DocumentRepository documents;
     private final DocumentVersionRepository versions;
@@ -87,20 +89,18 @@ public class DocumentService {
 
     public <R> R create(List<FileUpload> parts, String categoryId, String versionName, String worker,
                         Function<? super Document, R> view) {
+        // file은 선택이다. 없으면 v1을 파일 0개로 만들고 원본은 나중에 revisions로 올린다(D 결정 2026-11-24)
         FileUpload file = StoredFileService.single(parts);
-        if (file == null || categoryId == null || worker == null) throw ApiException.format();
+        if (categoryId == null || worker == null) throw ApiException.format();
         String label = VersionRules.versionLabel(1, versionName);
         String by = VersionRules.worker(worker);
-        VersionRules.requireDocFile(file);
+        if (file != null) VersionRules.requireDocFile(file);
         Category category = categories.findLocked(Ids.parse(categoryId, CATEGORY_NOT_FOUND));
         if (documents.existsByCategoryId(category.getId())) throw ApiException.conflict(CATEGORY_HAS_DOC);
         Document doc = new Document(category);
         String dir = storage.createDir(doc.getDirName(), label, StorageLayout.CATEGORY_RESERVED);
-        Instant now = IsoTimes.now();
-        var n = StorageLayout.versionFileName(doc.getTitle(), label, VersionFileKind.FILE,
-                StorageLayout.extension(StoredFileService.baseName(file.originalName())), now, by);
-        StoredFile original = files.insert(file, by, StorageLayout.join(doc.getDirName(), dir), n.display(), n.stored(), now);
-        doc.addVersion(1, storedName(1, label), label, dir, by).addFile(0, original, null);
+        DocumentVersion v1 = doc.addVersion(1, storedName(1, label), label, dir, by);
+        if (file != null) v1.addFile(0, insertOriginal(doc, v1, file, by), null);
         documents.save(doc);
         return done(doc, view);
     }
@@ -142,6 +142,15 @@ public class DocumentService {
         Document doc = lockDoc(docId);
         DocumentVersion latest = doc.latest();
         VersionRules.requireEditable(latest);
+        if (latest.getFiles().isEmpty()) {
+            // 파일 0개인 버전(파일 없이 만든 v1)은 원본 올리기로 동작한다
+            if (revision != null) throw ApiException.badRequest(ORIGINAL_ONLY);
+            if (file == null) throw ApiException.badRequest(ORIGINAL_REQUIRED);
+            VersionRules.requireDocFile(file);
+            latest.addFile(0, insertOriginal(doc, latest, file, by), null);
+            doc.touch();
+            return done(doc, view);
+        }
         if (file == null || revision == null) throw ApiException.badRequest(PAIR);
         VersionRules.requireDocFile(file);
         VersionRules.requireDocFile(revision);
@@ -165,6 +174,7 @@ public class DocumentService {
         DocumentVersion latest = doc.latest();
         VersionRules.requireEditable(latest);
         UUID target = Ids.parseOrNull(fileId);
+        if (latest.getFiles().isEmpty()) throw ApiException.conflict("가장 최신 수정본만 삭제할 수 있습니다.");
         if (latest.original().fileId().equals(target)) throw ApiException.conflict("원본은 삭제할 수 없습니다.");
         VersionFile current = latest.current();
         if (latest.getFiles().size() < 2 || !current.fileId().equals(target)) {
@@ -249,6 +259,14 @@ public class DocumentService {
     }
 
     // ---- 내부 ----
+
+    /** 원본을 버전 폴더에 '{제목} {버전}_{yyyyMMdd}_{작업자}.{확장자}'로 저장한다(문서 생성과 파일 0개 버전의 원본 올리기). */
+    private StoredFile insertOriginal(Document doc, DocumentVersion v, FileUpload file, String by) {
+        Instant now = IsoTimes.now();
+        var n = StorageLayout.versionFileName(doc.getTitle(), v.getLabel(), VersionFileKind.FILE,
+                StorageLayout.extension(StoredFileService.baseName(file.originalName())), now, by);
+        return files.insert(file, by, StorageLayout.join(doc.getDirName(), v.getDirName()), n.display(), n.stored(), now);
+    }
 
     /** 새로 만든 엔티티의 id가 채워지도록 flush한 뒤 응답을 만든다. DB 제약 위반도 여기서 드러난다. */
     private <R> R done(Document doc, Function<? super Document, R> view) {
