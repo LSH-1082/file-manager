@@ -2,6 +2,8 @@ export interface Category {
   id: string
   name: string
   createdAt: string
+  /** 사이드바 '문서' 목록에서 숨김 */
+  hidden: boolean
 }
 
 /** 업로드된 파일 한 건. 본문은 서버가 id를 키로 보관하고 GET /api/files/{id}로 받는다 */
@@ -146,11 +148,61 @@ export type ResourceInput = Pick<CategoryResource, 'kind' | 'title' | 'note'>
 export type CategoryInput = Pick<Category, 'name'>
 export type DocInput = Pick<Doc, 'title' | 'categoryId'>
 
-/** 사이드바 선택 상태: 전체 / 미분류 / 특정 카테고리 */
+/** 사이드바 선택 상태: 전체 / 일정 / 미분류 / 특정 카테고리 */
 export type CategoryFilter =
   | { kind: 'all' }
+  | { kind: 'schedule' }
   | { kind: 'uncategorized' }
   | { kind: 'category'; id: string }
 
 /** 분류 지정 대상: 기존 카테고리 id 또는 새로 만들 카테고리 */
 export type AssignTarget = string | CategoryInput
+
+/** 발송 문서 한 건, 곧 간트 막대 하나(docs/api/README.md 5.1). 일정(기간 묶음)은 ScheduleGroup이다. startDate·plannedSendDate는 날짜 전용 YYYY-MM-DD */
+export interface Schedule {
+  id: string
+  documentId: string
+  /** 소속 일정의 ScheduleGroup.id. 없으면 일정과 관계없는 문서. 수정(PUT)으로 바꿀 수 있고 일정이 지워지면 없어진다 */
+  groupId?: string
+  documentTitle: string
+  /** 미분류면 null */
+  categoryId: string | null
+  /** 서버가 계산한 문서의 현재 단계. versioning.ts의 Stage와 같은 값(순환 import를 피해 리터럴로 적는다) */
+  stage: 'working' | 'queued' | 'reviewing' | 'ready' | 'sent'
+  startDate: string
+  plannedSendDate: string
+  memo?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** 발송 문서 등록 본문(5.2). groupId를 빼면 일정과 관계없는 문서가 된다 */
+export interface ScheduleInput {
+  documentId: string
+  groupId?: string
+  startDate: string
+  plannedSendDate: string
+  memo?: string
+}
+
+/** 발송 문서 수정 본문(5.2, 전체 교체). 문서(D-28)는 바꿀 수 없고, groupId를 빼면 일정과 관계없는 문서가 된다 */
+export type ScheduleUpdate = Omit<ScheduleInput, 'documentId'>
+
+/** 일정 한 건, 곧 발송 문서(Schedule)를 묶는 기간(docs/api/README.md 5.1). startDate·endDate는 날짜 전용 YYYY-MM-DD */
+export interface ScheduleGroup {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  /** 배경색 번호 0~5. 등록할 때 서버가 정하고 바뀌지 않는다(D-32) */
+  colorNo: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** 일정 등록·수정 본문(5.2) */
+export interface ScheduleGroupInput {
+  name: string
+  startDate: string
+  endDate: string
+}

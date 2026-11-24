@@ -1,0 +1,712 @@
+/*
+ * 일정(간트) 화면 — 기존 Achromatic ledger(index.css) 위에 얹는다. 반응형 규칙은 두지 않는다(1440 폭 기준).
+ *
+ * 격자 (1440px): 상세 종이 안 본문 폭 1102 = 문서 열 220 + 차트 창 882(가로 스크롤).
+ * 축 세 줄: 달·해 24 + 날·주·달 24 + 오늘 칩 22, 아래 경계 1 = 71. 칩 줄에는 다른 글자가 없어 겹치지 않는다.
+ * 행 = 줄 수 × 28 + 위아래 6(GanttRow.tsx LANE_H·ROW_PAD). 일정 머리 행 37, 빈 행 40.
+ * 막대 22px는 줄 28 안에서 margin-top 3으로 가운데에 놓여, 한 줄 행(40)의 위아래 여백이 9로 같다.
+ * 색: 크롬은 잉크와 회색, 막대는 문서의 현재 단계 색(상태 배지·사이드바 점과 같은 --stage-*),
+ * 일정 색(--group-*)은 일정 칸·머리 이름 열·행 왼쪽 띠에만, 한 가지 색(--hue)은 오늘 선에만 쓴다. 글자는 13/15/22px만 쓴다.
+ */
+
+.gantt {
+  /* 일정 색칸이 비치도록 격자선과 토·일 바탕은 반투명이다 */
+  --gantt-line: rgba(10, 18, 34, 0.07);
+  --gantt-weekend: rgba(10, 18, 34, 0.045);
+  /* 기간 밖 점선 */
+  --out-line-hover: var(--negative);
+  display: grid;
+  gap: var(--gap);
+}
+
+/* 일정 배경색(서버의 colorNo): 0 노랑, 1 하늘, 2 연두, 3 분홍, 4 살구, 5 청록. 바탕과 칸 테두리 */
+.group-color-0 { --group-bg: #fdf0a4; --group-edge: #b89200; }
+.group-color-1 { --group-bg: #d3ecf7; --group-edge: #3f93b8; }
+.group-color-2 { --group-bg: #e1f1c0; --group-edge: #749a24; }
+.group-color-3 { --group-bg: #fbdbe4; --group-edge: #c9688a; }
+.group-color-4 { --group-bg: #fddfc6; --group-edge: #cb7c38; }
+.group-color-5 { --group-bg: #cdeee6; --group-edge: #35988a; }
+
+@media (prefers-color-scheme: dark) {
+  .gantt {
+    --gantt-line: rgba(255, 255, 255, 0.07);
+    --gantt-weekend: rgba(255, 255, 255, 0.04);
+    /* 다크에서는 호버 때 막대 바탕이 밝아지므로 점선도 밝힌다 */
+    --out-line-hover: #ff8096;
+  }
+  .group-color-0 { --group-bg: #453c08; --group-edge: #b39a2e; }
+  .group-color-1 { --group-bg: #10384a; --group-edge: #4f9dc0; }
+  .group-color-2 { --group-bg: #2b3b12; --group-edge: #86a843; }
+  .group-color-3 { --group-bg: #48202f; --group-edge: #cc7496; }
+  .group-color-4 { --group-bg: #4b2d15; --group-edge: #cd8a50; }
+  .group-color-5 { --group-bg: #113f39; --group-edge: #45a596; }
+}
+
+/* ---------- 머리: 제목 / 단위 전환·일정 등록·문서 추가 ---------- */
+.gantt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  min-height: var(--control-height);
+}
+.gantt-head h1 {
+  font-size: var(--fs-title);
+  line-height: 30px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.gantt-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex: none;
+}
+
+/* 일·주·월: 회색 트랙 안에서 눌린 것만 흰 종이로 떠오른다(색 없음, 그림자 없음) */
+.gantt-units {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--raised);
+}
+.gantt-unit {
+  height: 32px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  transition:
+    background-color var(--t-hover) ease,
+    color var(--t-hover) ease,
+    border-color var(--t-hover) ease;
+}
+.gantt-unit:hover {
+  color: var(--text);
+}
+.gantt-unit[aria-pressed='true'] {
+  border-color: var(--control);
+  background: var(--surface);
+  color: var(--text);
+}
+.gantt-unit:active {
+  transform: translateY(1px);
+}
+
+/* ---------- 차트 틀 ---------- */
+.gantt-frame {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+/* 일정 조회 실패 안내: 사유 + '다시 시도' */
+.gantt-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--pill-negative-bg);
+  color: var(--pill-negative-ink);
+  font-size: var(--fs-small);
+  line-height: 18px;
+}
+.gantt-notice p {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere; /* 공백 없는 긴 서버 문구도 줄을 바꾼다 */
+}
+/* 사유가 마침표 없이 끝나도 이어 읽히지 않게 다른 줄에 둔다 */
+.gantt-notice-stale {
+  display: block;
+}
+.gantt-notice .btn {
+  flex: none;
+}
+/* 안내 줄의 붉은 글자색을 물려받지 않고 다른 보조 버튼과 같은 잉크색을 쓴다(비활성 색은 .btn:disabled 그대로) */
+.gantt-notice .btn:not(:disabled) {
+  color: var(--text);
+}
+
+/* 기간 밖 막대 안내: 실패 안내와 따로 두 줄로 놓인다 */
+.gantt-out-notice {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--pill-warning-line);
+  background: var(--pill-warning-bg);
+  color: var(--pill-warning-ink);
+  font-size: var(--fs-small);
+  line-height: 18px;
+}
+
+.gantt-scroll {
+  overflow-x: auto;
+}
+
+/* 쌓임 순서: 일정 색칸(-2) → 격자선(-1) → 막대 → 오늘 선(1) → 메모·칸 글자(2) → 문서 열(3) */
+.gantt-grid {
+  position: relative;
+  isolation: isolate;
+}
+
+.gantt-row {
+  position: relative;
+  display: flex;
+}
+/* 행 구분선은 두 칸이 각각 그린다. 문서 열 칸이 구분선까지 덮어 오늘 선이 그 틈으로 비치지 않는다 */
+.gantt-name {
+  border-bottom: 1px solid var(--rule);
+}
+.gantt-track {
+  border-bottom: 1px solid var(--gantt-line);
+}
+/* 마지막 행: 맨 아래 구역의 마지막 행, 내용이 없으면 축(뒤에는 오늘 선만 있다) */
+.gantt-group.free > .gantt-row:last-child > *,
+.gantt-grid > .gantt-group:nth-last-child(2) > .gantt-row:last-child > *,
+.gantt-grid > .gantt-row:nth-last-child(2) > * {
+  border-bottom: 0;
+}
+
+/* 문서 열: 가로로 스크롤해도 왼쪽에 머문다. 막대·오늘 선이 이 열 밑으로 지나간다 */
+.gantt-name {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  flex: 0 0 220px;
+  width: 220px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+.gantt-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt-track {
+  position: relative;
+  flex: 1 0 auto;
+}
+
+.gantt-tick,
+.gantt-gridline,
+.gantt-bar,
+.gantt-bar-label.outside {
+  position: absolute;
+}
+
+/* ---------- 축(위: 달·해, 가운데: 날·주·달, 아래: 오늘 칩) ---------- */
+.gantt-axis {
+  height: 71px;
+}
+.gantt-axis > * {
+  border-bottom-color: var(--border);
+}
+.gantt-axis .gantt-name {
+  align-items: flex-end;
+  padding-bottom: 1px;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+.gantt-tick {
+  top: 24px;
+  bottom: 0;
+  padding: 0 6px;
+  border-left: 1px solid var(--rule);
+  /* hidden은 스크롤 컨테이너가 되어 위 줄의 sticky 라벨이 멈추므로 clip으로 자른다 */
+  overflow: clip;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  line-height: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.gantt-tick.top {
+  top: 0;
+  bottom: auto;
+  height: 24px;
+  border-left-color: var(--border);
+  color: var(--text);
+  font-weight: 500;
+}
+/* 달·해 이름은 그 구간의 보이는 왼쪽 끝(문서 열 오른쪽 + 8)에 붙어, 문서 열 밑으로 숨지 않는다 */
+.gantt-tick-label {
+  position: sticky;
+  left: 228px;
+}
+.unit-day .gantt-tick:not(.top) {
+  padding: 0;
+  text-align: center;
+}
+.gantt-tick.weekend {
+  background: var(--ground);
+}
+.gantt-tick.today {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* 세로 격자선: 아래 축 눈금마다 1px, 축 아래부터 차트 끝까지. 일 단위의 토·일은 바탕을 한 단계 어둡게 */
+.gantt-gridline {
+  top: 71px;
+  bottom: 0;
+  z-index: -1;
+  border-left: 1px solid var(--gantt-line);
+  pointer-events: none;
+}
+.gantt-gridline.weekend {
+  background: var(--gantt-weekend);
+}
+
+/* ---------- 묶음 칸: 일정마다 머리 행부터 마지막 문서 행까지 기간만큼 칠한다 ---------- */
+.gantt-group {
+  position: relative;
+}
+/* 문서 열(220px) 오른쪽에서 시작한다 */
+.gantt-group-cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: -2;
+  margin-left: 220px;
+  border: solid var(--group-edge);
+  border-width: 0 1px;
+  background: var(--group-bg);
+}
+.gantt-group-head {
+  height: 37px;
+}
+.gantt-group-head .gantt-name {
+  gap: 0;
+  padding: 0 6px 0 16px;
+  background: var(--group-bg);
+  font-weight: 500;
+}
+.gantt-group-head .gantt-name-text {
+  flex: 1;
+  padding-right: 6px;
+}
+.gantt-group-head .icon-btn {
+  flex: none;
+  color: var(--text);
+}
+.gantt-group-head .icon-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+/* 문서 열은 sticky라 안쪽으로 초점 테를 그려 잘리지 않게 한다 */
+.gantt-group-head .icon-btn:focus-visible {
+  outline-offset: -2px;
+}
+.gantt-group.free > .gantt-group-head > * {
+  background: var(--ground);
+}
+.gantt-group-empty {
+  height: 40px;
+}
+.gantt-group > .gantt-row:not(.gantt-group-head) > .gantt-name {
+  padding-left: 24px;
+  border-left: 4px solid var(--group-bg);
+}
+.gantt-group.free > .gantt-row:not(.gantt-group-head) > .gantt-name {
+  padding-left: 28px;
+  border-left: 0;
+}
+/* 칸 글자: 칸의 보이는 구간 왼쪽에 붙는다. 오늘이 걸친 칸에서만(crossed) 글자 줄에 칸과 같은 바탕을 두어
+   오늘 선이 글자를 지나지 않게 한다. 그 밖의 칸에서는 바탕이 없어 토·일 바탕과 격자선이 끊기지 않는다 */
+.gantt-cell-text {
+  position: absolute;
+  top: 4px;
+  z-index: 2;
+  height: 28px;
+  /* hidden은 스크롤 컨테이너가 되어 안쪽 sticky 글자가 멈추므로 clip으로 자른다 */
+  overflow: clip;
+  color: var(--text);
+  font-size: var(--fs-small);
+  line-height: 28px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.gantt-cell-text > span {
+  position: sticky;
+  left: 221px;
+  display: inline-block;
+  margin-left: 1px;
+  padding: 0 8px 0 7px;
+  line-height: 18px;
+}
+.gantt-cell-text.crossed > span {
+  background: var(--group-bg);
+}
+.gantt-group-empty .gantt-cell-text {
+  top: 6px;
+}
+.gantt-cell-text.crossed.beside > span,
+.gantt-group.free .gantt-cell-text.crossed > span {
+  background: var(--surface);
+}
+
+/* 앞부분이 문서 열에 가려진 글자는 일부만 보이지 않게 통째로 숨긴다(GanttView의 hideCutTexts) */
+.gantt-whole-text[data-cut] {
+  visibility: hidden;
+}
+
+.gantt-grid > .gantt-group-empty .gantt-cell-text > span {
+  background: var(--surface);
+}
+
+/* ---------- 막대 ---------- */
+.gantt-bar {
+  /* 단계 색은 아래 .working~.sent가 정한다 */
+  --bar-bg: var(--stage-working-bg);
+  --bar-ink: var(--stage-working-ink);
+  --bar-edge: var(--stage-working-dot);
+  --out-line: var(--negative);
+  display: flex;
+  align-items: center;
+  height: 22px;
+  margin-top: 3px;
+  min-width: 0;
+  padding: 0 7px 0 5px;
+  border: 1px solid color-mix(in srgb, var(--bar-edge) 40%, var(--surface));
+  border-left: 3px solid var(--bar-edge);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--surface); /* taste-skill-ignore: 일정 색 위에서 막대를 떼어 보이는 테두리이며 그림자(높이)가 아니다 */
+  /* hidden은 스크롤 컨테이너가 되어 안쪽 sticky 메모가 멈추므로 clip으로 자른다 */
+  overflow: clip;
+  background: var(--bar-bg);
+  color: var(--bar-ink);
+  text-align: left;
+  font-size: var(--fs-small);
+  cursor: pointer;
+  transition:
+    background-color var(--t-hover) ease,
+    border-color var(--t-hover) ease;
+}
+/* 글자 없는 막대: 안여백이 하루 폭(월 단위 8px)보다 막대를 넓히지 않게 한다 */
+.gantt-bar:empty {
+  padding: 0;
+}
+.gantt-bar:hover {
+  border-color: var(--bar-edge);
+  background: color-mix(in srgb, var(--bar-bg) 88%, var(--text));
+}
+/* 기간 밖: 붉은 점선 테(왼쪽 단계 색은 그대로) */
+.gantt-bar.out,
+.gantt-bar.out:hover {
+  border-top: 1px dashed var(--out-line);
+  border-right: 1px dashed var(--out-line);
+  border-bottom: 1px dashed var(--out-line);
+}
+.gantt-bar.out:hover {
+  --out-line: var(--out-line-hover);
+}
+.gantt-bar:focus-visible {
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+.gantt-bar-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-small);
+  line-height: 20px;
+}
+
+/* 막대 안 메모는 막대의 보이는 구간 왼쪽에 붙는다. 막대 앞부분이 고정된 문서 열(220px) 밑으로
+   스크롤되어도 메모가 그 열 오른쪽 경계(+ 8px)에 머문다. 오늘 선 위에 막대와 같은 바탕으로 놓여
+   선이 글자를 지나지 않고 글자 자리에서 끊긴다 */
+.gantt-bar > .gantt-bar-label {
+  position: sticky;
+  left: 225px;
+  z-index: 2;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% + 6px);
+  /* 글자 위치는 그대로 두고 바탕만 양옆 3px 넓혀 선이 글자에 붙지 않게 한다 */
+  margin: 0 -3px;
+  padding: 0 3px;
+  background-color: inherit;
+  font-weight: 500;
+}
+
+/* 막대에 들어가지 않는 메모와 '기간 밖': 막대 끝 4px 뒤. 바탕을 두어 칸 테두리·오늘 선이 글자를 지나지 않는다 */
+.gantt-bar-label.outside {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  margin-top: 3px;
+  z-index: 2;
+  overflow: visible;
+  color: var(--text);
+  pointer-events: none;
+}
+/* 글자 위치는 막대 끝 4px 뒤 그대로 두고 바탕만 양옆 3px 넓힌다 */
+.gantt-bar-memo {
+  margin: 0 -3px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--surface);
+  line-height: 18px;
+}
+.gantt-out-tag {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--pill-negative-bg);
+  color: var(--pill-negative-ink);
+  line-height: 18px;
+}
+
+/* 막대 색: 문서의 현재 단계 색(거절됨은 작업중). 바탕·글자는 상태 배지와 같은 쌍(4.5:1 이상), 왼쪽 끝은 사이드바 점 색 */
+.gantt-bar.working {
+  --bar-bg: var(--stage-working-bg);
+  --bar-ink: var(--stage-working-ink);
+  --bar-edge: var(--stage-working-dot);
+}
+.gantt-bar.queued {
+  --bar-bg: var(--stage-queued-bg);
+  --bar-ink: var(--stage-queued-ink);
+  --bar-edge: var(--stage-queued-dot);
+}
+.gantt-bar.reviewing {
+  --bar-bg: var(--stage-reviewing-bg);
+  --bar-ink: var(--stage-reviewing-ink);
+  --bar-edge: var(--stage-reviewing-dot);
+}
+.gantt-bar.ready {
+  --bar-bg: var(--stage-ready-bg);
+  --bar-ink: var(--stage-ready-ink);
+  --bar-edge: var(--stage-ready-dot);
+}
+.gantt-bar.sent {
+  --bar-bg: var(--stage-sent-bg);
+  --bar-ink: var(--stage-sent-ink);
+  --bar-edge: var(--stage-sent-dot);
+}
+
+/* ---------- 오늘 선: 화면의 한 가지 색. 축의 칩 줄에서 시작해 눈금 글자를 지나지 않는다.
+   막대 위로 지나가되 클릭은 막대로 간다 ---------- */
+.gantt-today {
+  position: absolute;
+  top: 50px;
+  bottom: 0;
+  width: 1px;
+  z-index: 1;
+  background: var(--hue);
+  pointer-events: none;
+}
+.gantt-today-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateX(-50%);
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--hue);
+  color: var(--surface);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 빈 상태: 축은 그대로 두고 보이는 창 왼쪽에 한 문장 ---------- */
+.gantt-empty {
+  position: sticky;
+  left: 0;
+  width: max-content;
+  max-width: 100%;
+  /* 오늘 선은 문장 자리에서만 끊긴다: 위아래 여백은 투명 테두리라 바탕이 칠해지지 않는다 */
+  z-index: 2;
+  padding: 0 16px;
+  border: 0 solid transparent;
+  border-width: 24px 0;
+  background: var(--surface);
+  background-clip: padding-box;
+  color: var(--muted);
+}
+
+/* ---------- 범례: 화면에 있는 단계·색칸·소속·기간 밖만, 견본은 막대 모양 그대로 줄인 것 ---------- */
+.gantt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  line-height: 18px;
+}
+.gantt-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.gantt-legend-mark {
+  width: 16px;
+  height: 10px;
+  border: 1px solid color-mix(in srgb, var(--bar-edge) 40%, transparent);
+  border-left: 3px solid var(--bar-edge);
+  border-radius: 2px;
+  background: var(--bar-bg);
+}
+.gantt-legend-mark.working { --bar-bg: var(--stage-working-bg); --bar-edge: var(--stage-working-dot); }
+.gantt-legend-mark.queued { --bar-bg: var(--stage-queued-bg); --bar-edge: var(--stage-queued-dot); }
+.gantt-legend-mark.reviewing { --bar-bg: var(--stage-reviewing-bg); --bar-edge: var(--stage-reviewing-dot); }
+.gantt-legend-mark.ready { --bar-bg: var(--stage-ready-bg); --bar-edge: var(--stage-ready-dot); }
+.gantt-legend-mark.sent { --bar-bg: var(--stage-sent-bg); --bar-edge: var(--stage-sent-dot); }
+.gantt-legend li.sep {
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+/* 막대 없이 일정만 있으면 앞에 나눌 항목이 없다 */
+.gantt-legend li.sep:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.gantt-legend-mark.area {
+  width: 24px;
+  height: 14px;
+  border: solid var(--group-edge);
+  border-width: 0 1px;
+  border-radius: 0;
+  background: var(--group-bg);
+}
+.gantt-legend-mark.out {
+  width: 24px;
+  height: 14px;
+  border: 1px dashed var(--negative);
+  border-left: 3px solid var(--bar-edge);
+}
+
+/* ---------- 일정 창·발송 문서 창 ---------- */
+/* 수정 창의 문서·일정 칸: 바꿀 수 없는 값이라 입력칸 대신 회색 바탕의 글자 */
+.field-static {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  background: var(--raised);
+  color: var(--text);
+}
+/* 삭제는 footer 왼쪽, 취소·저장은 오른쪽 */
+.modal-footer .schedule-delete {
+  margin-right: auto;
+}
+.schedule-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+/* 기간 밖 안내: 저장을 막지 않는다 */
+.schedule-warn {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--pill-warning-line);
+  border-radius: var(--radius-control);
+  background: var(--pill-warning-bg);
+  color: var(--pill-warning-ink);
+  font-size: var(--fs-small);
+  line-height: 18px;
+}
+/* 글자가 없는 동안에는 폼의 칸 사이 간격도 차지하지 않는다 */
+.schedule-warn:empty {
+  position: absolute;
+  padding: 0;
+  border: 0;
+}
+/* 일정 삭제 확인의 막대 목록: 많으면 그 안에서 스크롤한다 */
+.schedule-confirm-list {
+  display: block;
+  max-height: 220px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  overflow-y: auto;
+  border-radius: var(--radius-control);
+  background: var(--raised);
+  font-size: var(--fs-small);
+  line-height: 22px;
+}
+.schedule-confirm-list > span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 막대 끌어 옮기기: 놓을 수 있는 묶음 강조와 실패 안내 ---------- */
+.gantt-group.droppable {
+  outline: 2px dashed var(--group-edge, var(--border));
+  outline-offset: -2px;
+}
+.gantt-move-notice {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  width: fit-content;
+  margin: 0;
+  padding: 6px 16px;
+  background: var(--pill-negative-bg);
+  color: var(--pill-negative-ink);
+  font-size: var(--fs-small);
+}
+.gantt-move-notice:empty {
+  display: none;
+}
+
+/* ---------- 문서 상세의 일정 목록(DocView DocSchedules) ---------- */
+.doc-schedules {
+  display: grid;
+  gap: 8px;
+}
+.doc-schedules h3 {
+  font-size: var(--fs-section);
+  line-height: 24px;
+  font-weight: 500;
+}
+.doc-schedules ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.doc-schedules li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  line-height: 20px;
+}
+.doc-schedule-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--group-edge, var(--border));
+  border-radius: 3px;
+  background: var(--group-bg, transparent);
+}
+.doc-schedule-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.doc-schedule-period,
+.doc-schedule-memo {
+  color: var(--muted);
+}

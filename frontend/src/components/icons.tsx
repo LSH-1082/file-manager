@@ -23,9 +23,29 @@ function Svg({ size = 16, children, ...rest }: IconProps) {
   )
 }
 
+export const IconEye = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" />
+    <circle cx="8" cy="8" r="2" />
+  </Svg>
+)
+
+export const IconEyeOff = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6.5 3.7A6.6 6.6 0 0 1 8 3.5c4 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.7 2.2M10.5 11.9A6.3 6.3 0 0 1 8 12.5C4 12.5 1.5 8 1.5 8a11 11 0 0 1 2.6-3M2 2l12 12" />
+  </Svg>
+)
+
 export const IconPlus = (p: IconProps) => (
   <Svg {...p}>
     <path d="M8 3.5v9M3.5 8h9" />
+  </Svg>
+)
+
+export const IconCalendar = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
+    <path d="M5.5 2v3M10.5 2v3M2.5 7h11" />
   </Svg>
 )
 
