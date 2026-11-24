@@ -55,10 +55,12 @@ public abstract class ApiTestSupport {
     @BeforeEach
     void resetAll() throws IOException {
         // FK 순서대로 지운다(H2와 MySQL 모두에서 도는 DELETE)
-        for (String t : List.of("review_round_reviewers", "version_review_rounds", "version_reviewers", "version_files", "category_resources",
+        for (String t : List.of("schedules", "schedule_groups", "review_round_reviewers", "version_review_rounds", "version_reviewers", "version_files", "category_resources",
                 "document_versions", "documents", "stored_files", "categories")) {
             jdbc.sql("DELETE FROM " + t).update();
         }
+        // 설정 행은 V3 마이그레이션이 만든 한 행이라 지우지 않고 초기값으로 되돌린다
+        jdbc.sql("UPDATE schedule_settings SET layout = 'group', next_color_no = 0").update();
         Path root = storageRoot();
         if (Files.isDirectory(root)) {
             try (Stream<Path> s = Files.list(root)) {

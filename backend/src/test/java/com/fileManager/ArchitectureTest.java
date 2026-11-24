@@ -18,7 +18,7 @@ class ArchitectureTest {
     private static final String BASE = "com.fileManager";
     private static final String OLD_PACKAGE = "com." + "docmgr"; // 이 파일에 옛 이름이 글자 그대로 남지 않게 나눠 쓴다
     private static final String OLD_PATH = "com/" + "docmgr";
-    private static final Set<String> DOMAINS = Set.of("category", "document", "file", "resource");
+    private static final Set<String> DOMAINS = Set.of("category", "document", "file", "resource", "schedule");
     private static final Set<String> LAYERS = Set.of("presentation", "application", "domain", "infrastructure");
     private static final Set<String> GLOBALS = Set.of("config", "error", "util");
     private static final Pattern PACKAGE = Pattern.compile("^package\\s+([\\w.]+)\\s*;");
@@ -127,11 +127,14 @@ class ArchitectureTest {
                             violations.add("(e) 다른 도메인 presentation: " + where);
                         }
                     }
-                    // (f) 도메인 간 방향: file < category < document, resource (document와 resource는 서로 모른다)
+                    // (f) 도메인 간 방향: file < category < document < schedule, resource
+                    //     (document·resource·schedule에서 resource와 schedule는 서로 모르고, document는 둘 다 모른다)
                     if (other != null && !other[0].equals(me[0])) {
                         boolean bad = switch (me[0]) {
                             case "file" -> true;
-                            default -> other[0].equals("document") || other[0].equals("resource");
+                            case "schedule" -> other[0].equals("resource");
+                            default -> other[0].equals("document") || other[0].equals("resource")
+                                    || other[0].equals("schedule");
                         };
                         if (bad) violations.add("(f) " + where);
                     }
