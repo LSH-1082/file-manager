@@ -116,8 +116,6 @@ class DocumentApiTest extends ApiTestSupport {
                 404, "NOT_FOUND", "카테고리를 찾을 수 없습니다.");
         assertError(multipart(HttpMethod.POST, url, Map.of("worker", "김"), f), 400, "INVALID_INPUT", FORMAT);
         assertError(multipart(HttpMethod.POST, url, Map.of("categoryId", cat), f), 400, "INVALID_INPUT", FORMAT);
-        assertError(multipart(HttpMethod.POST, url, Map.of("categoryId", cat, "worker", "김"), Map.of()),
-                400, "INVALID_INPUT", FORMAT);
         assertError(multipartMulti(HttpMethod.POST, url, Map.of("categoryId", cat, "worker", "김"),
                 Map.of("file", List.of(Part.of("a.pdf", "1"), Part.of("b.pdf", "2")))), 400, "INVALID_INPUT", FORMAT);
         assertEquals(0, storedFiles());
@@ -615,5 +613,79 @@ class DocumentApiTest extends ApiTestSupport {
                 .param("id", newId()).param("d", docId(d)).update();
         // v2는 발송됐고 v1은 발송 전이므로 v1 삭제는 '최신 아님'
         assertError(delete(docUrl(d, "/versions/" + v1)), 409, "CONFLICT", "최신 버전만 삭제할 수 있습니다.");
+    }
+
+    // ---- 파일 없이 문서 만들기(D 결정 2026-11-24) ----
+
+    private static final String ORIGINAL_ONLY = "원본 파일 하나만 올리세요.";
+    private static final String ORIGINAL_REQUIRED = "원본 파일을 올리세요.";
+
+    private JsonNode emptyDoc(String catName) {
+        Response r = multipart(HttpMethod.POST, "/api/documents", Map.of("categoryId", category(catName), "worker", "김철수"), Map.of());
+        assertEquals(201, r.status(), r.text());
+        return r.json();
+    }
+
+    private Response revisions(JsonNode doc, Map<String, Part> parts) {
+        return multipart(HttpMethod.POST, docUrl(doc, "/revisions"), Map.of("worker", "이영희"), parts);
+    }
+
+    @Test
+    void createDocWithoutFileMakesEmptyV1() {
+        JsonNode d = emptyDoc("빈문서");
+        JsonNode v = d.get("versions").get(0);
+        assertEquals(1, v.get("number").asInt());
+        assertEquals("김철수", v.get("worker").asString());
+        assertEquals(0, v.get("files").size());
+        assertEquals(0, storedFiles());
+        assertTrue(java.nio.file.Files.isDirectory(storageRoot().resolve("빈문서").resolve("v1")));
+        assertEquals(0, reload(d).get("versions").get(0).get("files").size());
+    }
+
+    @Test
+    void uploadOriginalToEmptyVersion() {
+        JsonNode d = emptyDoc("원본");
+        assertError(revisions(d, Map.of("file", Part.of("a.pdf", "x"), "revision", Part.of("b.pdf", "y"))),
+                400, "INVALID_INPUT", ORIGINAL_ONLY);
+        assertError(revisions(d, Map.of("revision", Part.of("b.pdf", "y"))), 400, "INVALID_INPUT", ORIGINAL_ONLY);
+        assertError(revisions(d, Map.of()), 400, "INVALID_INPUT", ORIGINAL_REQUIRED);
+        assertError(revisions(d, Map.of("file", Part.of("a.txt", "x"))), 400, "INVALID_INPUT", DOC_FILE_TYPE);
+        assertEquals(0, storedFiles());
+        assertEquals(0, storedBodies());
+
+        Response ok = revisions(d, Map.of("file", Part.of("a.hwpx", "x")));
+        assertEquals(200, ok.status(), ok.text());
+        JsonNode files = lastVersion(ok.json()).get("files");
+        assertEquals(1, files.size());
+        assertEquals("원본 v1.hwpx", files.get(0).get("fileName").asString());
+        assertEquals("이영희", files.get(0).get("uploadedBy").asString());
+        assertFalse(files.get(0).has("revision"));
+        assertTrue(java.nio.file.Files.exists(storageRoot().resolve("원본").resolve("v1")
+                .resolve(files.get(0).get("downloadName").asString())));
+
+        // 원본이 생긴 뒤에는 지금의 수정본+대조표 쌍 규칙
+        assertError(revisions(d, Map.of("file", Part.of("a.pdf", "x"))), 400, "INVALID_INPUT",
+                "수정본은 수정대조표와 함께 올려야 등록됩니다.");
+        Response pair = addRevision(docId(d), "박");
+        assertEquals(200, pair.status(), pair.text());
+        JsonNode fs = lastVersion(pair.json()).get("files");
+        assertEquals(2, fs.size());
+        assertEquals("원본 v1 수정대조표.pdf", fs.get(1).get("revision").get("fileName").asString());
+        assertTrue(java.nio.file.Files.isDirectory(storageRoot().resolve("원본").resolve("v1").resolve("edit1")));
+    }
+
+    @Test
+    void emptyDocListDeleteRevisionRenameCategoryAndDelete() {
+        JsonNode d = emptyDoc("목록");
+        String cat = d.get("categoryId").asString();
+        assertEquals(0, docs().get(0).get("versions").get(0).get("files").size());
+        assertError(delete(docUrl(d, "/revisions/" + UUID0)), 409, "CONFLICT", "가장 최신 수정본만 삭제할 수 있습니다.");
+        Response renamed = put("/api/categories/" + cat, Map.of("name", "새목록"));
+        assertEquals(200, renamed.status(), renamed.text());
+        assertEquals("새목록", reload(d).get("title").asString());
+        assertTrue(java.nio.file.Files.isDirectory(storageRoot().resolve("새목록").resolve("v1")));
+        Response gone = delete(docUrl(d, "/versions/" + vid(d)));
+        assertEquals(204, gone.status(), gone.text());
+        assertEquals(0, docs().size());
     }
 }

@@ -48,6 +48,7 @@ public class StageService {
         DocumentVersion v = doc.latest();
         String stage = v.stage();
         if (!"working".equals(stage)) throw VersionRules.already(stage);
+        if (v.getFiles().isEmpty()) throw ApiException.conflict("원본을 올려야 작업완료할 수 있습니다.");
         if (v.getNumber() >= 2 && v.getFiles().size() < 2) {
             throw ApiException.conflict("수정본을 올려야 작업완료할 수 있습니다.");
         }
