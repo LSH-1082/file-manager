@@ -13,6 +13,11 @@ import type {
   ResourceInput,
   SendInfo,
   CancelStep,
+  Schedule,
+  ScheduleGroup,
+  ScheduleGroupInput,
+  ScheduleInput,
+  ScheduleUpdate,
 } from '../types'
 
 const BASE: string = import.meta.env.VITE_API_BASE ?? '/api'
@@ -69,6 +74,11 @@ export async function updateCategory(id: string, input: CategoryInput): Promise<
   return json('PUT', `/categories/${enc(id)}`, input)
 }
 
+/** 사이드바 숨김 여부 저장 */
+export async function setCategoryHidden(id: string, hidden: boolean): Promise<Category> {
+  return json('PUT', `/categories/${enc(id)}/hidden`, { hidden })
+}
+
 /** 카테고리 삭제. 소속 문서는 미분류가 되고 양식·참고자료는 함께 지워진다 */
 export async function deleteCategory(id: string): Promise<void> {
   await call('DELETE', `/categories/${enc(id)}`)
@@ -95,12 +105,13 @@ export async function listDocs(): Promise<Doc[]> {
 }
 
 /** 새 문서. 올린 파일이 v1의 원본이 된다. 제목은 서버가 카테고리 이름으로 정한다 */
-export async function createDoc(input: DocInput, file: File, versionName = '', worker = ''): Promise<Doc> {
+/** 새 문서. file이 없으면 파일 0개인 v1을 만든다(원본은 uploadWorkingFile로 나중에 올린다) */
+export async function createDoc(input: DocInput, file: File | undefined, versionName = '', worker = ''): Promise<Doc> {
   return json('POST', '/documents', form({ file, categoryId: input.categoryId ?? '', versionName, worker }))
 }
 
-/** 작업중인 버전에 수정본과 그 수정대조표를 쌍으로 추가 */
-export async function uploadWorkingFile(id: string, file: File, revision: File, worker: string): Promise<Doc> {
+/** 작업중인 버전에 수정본과 그 수정대조표를 쌍으로 추가. 버전에 파일이 0개면 revision 없이 file이 원본이 된다 */
+export async function uploadWorkingFile(id: string, file: File, revision: File | undefined, worker: string): Promise<Doc> {
   return json('POST', `/documents/${enc(id)}/revisions`, form({ file, revision, worker }))
 }
 
@@ -171,4 +182,44 @@ export async function updateResource(id: string, input: ResourceInput, file?: Fi
 
 export async function deleteResource(id: string): Promise<void> {
   await call('DELETE', `/resources/${enc(id)}`)
+}
+
+// ---------- 발송 문서(간트 막대) ----------
+
+export async function listSchedules(): Promise<Schedule[]> {
+  return json('GET', '/schedules')
+}
+
+export async function createSchedule(input: ScheduleInput): Promise<Schedule> {
+  return json('POST', '/schedules', input)
+}
+
+/** 날짜·메모만 바꾼다(문서·소속 일정은 고정). memo를 빼면 메모가 지워진다(전체 교체) */
+export async function updateSchedule(id: string, input: ScheduleUpdate): Promise<Schedule> {
+  return json('PUT', `/schedules/${enc(id)}`, input)
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  await call('DELETE', `/schedules/${enc(id)}`)
+}
+
+// ---------- 일정(기간 묶음) ----------
+
+export async function listScheduleGroups(): Promise<ScheduleGroup[]> {
+  return json('GET', '/schedule-groups')
+}
+
+/** 배경색 번호(colorNo)는 서버가 정한다 */
+export async function createScheduleGroup(input: ScheduleGroupInput): Promise<ScheduleGroup> {
+  return json('POST', '/schedule-groups', input)
+}
+
+/** 이름·기간을 전체 교체한다. 배경색과 소속 발송 문서는 그대로다 */
+export async function updateScheduleGroup(id: string, input: ScheduleGroupInput): Promise<ScheduleGroup> {
+  return json('PUT', `/schedule-groups/${enc(id)}`, input)
+}
+
+/** 일정만 지운다. 소속 발송 문서는 일정과 관계없는 문서로 남는다 */
+export async function deleteScheduleGroup(id: string): Promise<void> {
+  await call('DELETE', `/schedule-groups/${enc(id)}`)
 }
