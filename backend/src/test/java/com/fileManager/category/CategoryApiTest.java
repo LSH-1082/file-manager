@@ -74,6 +74,45 @@ class CategoryApiTest extends ApiTestSupport {
     }
 
     @Test
+    void hiddenDefaultsFalseAndToggles() {
+        String id = create("숨길것");
+        assertFalse(get("/api/categories").json().get(0).get("hidden").asBoolean());
+        Response r = put("/api/categories/" + id + "/hidden", Map.of("hidden", true));
+        assertEquals(200, r.status(), r.text());
+        assertTrue(r.json().get("hidden").asBoolean());
+        assertEquals("숨길것", r.json().get("name").asString());
+        assertTrue(get("/api/categories").json().get(0).get("hidden").asBoolean());
+        r = put("/api/categories/" + id + "/hidden", Map.of("hidden", false));
+        assertEquals(200, r.status(), r.text());
+        assertFalse(r.json().get("hidden").asBoolean());
+    }
+
+    @Test
+    void renameKeepsHidden() {
+        String id = create("a");
+        put("/api/categories/" + id + "/hidden", Map.of("hidden", true));
+        Response r = put("/api/categories/" + id, Map.of("name", "b", "hidden", false));
+        assertEquals(200, r.status(), r.text());
+        assertTrue(r.json().get("hidden").asBoolean());
+    }
+
+    @Test
+    void hiddenRejections() {
+        String id = create("a");
+        Map<String, Boolean> ok = Map.of("hidden", true);
+        assertError(put("/api/categories/" + java.util.UUID.randomUUID() + "/hidden", ok), 404, "NOT_FOUND", "카테고리를 찾을 수 없습니다.");
+        assertError(put("/api/categories/not-a-uuid/hidden", ok), 404, "NOT_FOUND", "카테고리를 찾을 수 없습니다.");
+        String fmt = "요청 형식이 올바르지 않습니다.";
+        assertError(put("/api/categories/" + id + "/hidden", Map.of("hidden", "true")), 400, "INVALID_INPUT", fmt);
+        assertError(put("/api/categories/" + id + "/hidden", Map.of("hidden", 1)), 400, "INVALID_INPUT", fmt);
+        assertError(put("/api/categories/" + id + "/hidden", Map.of("other", true)), 400, "INVALID_INPUT", fmt);
+        assertError(put("/api/categories/" + id + "/hidden", "{\"hidden\": null}"), 400, "INVALID_INPUT", fmt);
+        assertError(put("/api/categories/" + id + "/hidden", "[true]"), 400, "INVALID_INPUT", fmt);
+        assertError(put("/api/categories/" + id + "/hidden", "{broken"), 400, "INVALID_INPUT", fmt);
+        assertFalse(get("/api/categories").json().get(0).get("hidden").asBoolean());
+    }
+
+    @Test
     void deleteIsIdempotentAndCascadesToResources() {
         String id = create("지울것");
         jdbc.sql("INSERT INTO documents (id, category_id, title, dir_name, created_at, updated_at) VALUES (:id, :c, '지울것', '지울것', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))").param("id", newId()).param("c", id).update();
