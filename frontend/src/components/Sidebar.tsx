@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useData } from '../store/useData'
 import type { Category, CategoryFilter } from '../types'
-import { sortCategories } from '../utils'
+import { dueTitleColor, nextDue } from '../deadline'
+import { isHiddenDoc, sortCategories } from '../utils'
 import { categoryDoc, latestVersion, STAGE_LABEL, versionStage } from '../versioning'
 import type { Stage } from '../versioning'
 import CategoryDialog from './CategoryDialog'
-import { BrandMark, IconClose, IconEdit, IconInbox, IconMenu, IconPlus, IconStack, IconTrash } from './icons'
+import { BrandMark, IconCalendar, IconChevron, IconClose, IconEdit, IconEye, IconEyeOff, IconInbox, IconMenu, IconPlus, IconStack, IconTrash } from './icons'
 import { ConfirmDialog } from './Modal'
 
 interface Props {
@@ -20,14 +21,44 @@ type DialogState =
   | null
 
 export default function Sidebar({ filter, onFilterChange }: Props) {
-  const { categories, docs, resources, removeCategory } = useData()
+  const { categories, docs, resources, schedules, removeCategory, setCategoryHidden } = useData()
   const [dialog, setDialog] = useState<DialogState>(null)
   /** 좁은 화면에서 카테고리 시트가 열려 있는지 */
   const [open, setOpen] = useState(false)
   const menuBtnRef = useRef<HTMLButtonElement>(null)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
 
-  const sorted = useMemo(() => sortCategories(categories), [categories])
+  /** 접힘 상태는 저장하지 않는다(새로고침하면 기본값) */
+  const [docsOpen, setDocsOpen] = useState(true)
+  const [hiddenOpen, setHiddenOpen] = useState(false)
+
+  // 각 카테고리 문서의 가장 빠른 발송 예정일. 없으면 undefined
+  const dues = useMemo(
+    () =>
+      new Map(
+        categories.map((c) => {
+          const d = categoryDoc(docs, c.id)
+          return [c.id, d ? nextDue(d, schedules) : undefined] as const
+        }),
+      ),
+    [categories, docs, schedules],
+  )
+
+  // 기한이 임박한 순(지난 것 포함, 빠른 날짜 먼저), 기한 없는 항목은 그 뒤에 이름순. sort는 안정 정렬이다
+  const sorted = useMemo(
+    () =>
+      sortCategories(categories).sort((a, b) => {
+        const da = dues.get(a.id)
+        const db = dues.get(b.id)
+        if (da === db) return 0
+        if (da === undefined) return 1
+        if (db === undefined) return -1
+        return da < db ? -1 : 1
+      }),
+    [categories, dues],
+  )
+  const visible = sorted.filter((c) => !c.hidden)
+  const hidden = sorted.filter((c) => c.hidden)
 
   // 각 카테고리 문서의 최신 버전 단계(거절됨은 작업중). 문서가 없으면 null
   const stages = useMemo(
@@ -77,6 +108,8 @@ export default function Sidebar({ filter, onFilterChange }: Props) {
     const active = filter.kind === 'category' && filter.id === node.id
     const stage = stages.get(node.id) ?? null
     const stageLabel = stage ? STAGE_LABEL[stage] : '문서 없음'
+    const HideIcon = node.hidden ? IconEye : IconEyeOff
+    const hideLabel = node.hidden ? '숨김 해제' : '숨기기'
     return (
       <li key={node.id}>
         <div className={`nav-item category-item ${active ? 'active' : ''}`}>
@@ -87,11 +120,20 @@ export default function Sidebar({ filter, onFilterChange }: Props) {
             onClick={() => choose({ kind: 'category', id: node.id })}
           >
             <span className={`dot stage-dot ${stage ?? 'none'}`} role="img" aria-label={stageLabel} title={stageLabel} />
-            <span className="nav-label" title={node.name}>
+            <span className="nav-label" title={node.name} style={{ color: dueTitleColor(dues.get(node.id)) }}>
               {node.name}
             </span>
           </button>
           <span className="item-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              title={hideLabel}
+              aria-label={`${node.name} ${hideLabel}`}
+              onClick={() => void setCategoryHidden(node.id, !node.hidden)}
+            >
+              <HideIcon size={14} />
+            </button>
             <button
               type="button"
               className="icon-btn"
@@ -119,7 +161,7 @@ export default function Sidebar({ filter, onFilterChange }: Props) {
   return (
     <>
       <div className="topbar">
-        <button ref={menuBtnRef} type="button" className="icon-btn menu-btn" aria-label="카테고리 메뉴 열기" aria-expanded={open} onClick={() => setOpen(true)}>
+        <button ref={menuBtnRef} type="button" className="icon-btn menu-btn" aria-label="문서 메뉴 열기" aria-expanded={open} onClick={() => setOpen(true)}>
           <IconMenu />
         </button>
         <span className="brand-name">
@@ -129,7 +171,7 @@ export default function Sidebar({ filter, onFilterChange }: Props) {
       </div>
 
       {open && <div className="sheet-scrim" aria-hidden="true" onClick={dismiss} />}
-    <aside className={`sidebar ${open ? 'open' : ''}`} aria-label="카테고리">
+    <aside className={`sidebar ${open ? 'open' : ''}`} aria-label="문서">
       <div className="brand">
         <BrandMark />
         <div className="brand-text">
@@ -146,7 +188,20 @@ export default function Sidebar({ filter, onFilterChange }: Props) {
             <button type="button" className="nav-main" aria-current={filter.kind === 'all' ? 'page' : undefined} onClick={() => choose({ kind: 'all' })}>
               <IconStack className="nav-icon" />
               <span className="nav-label">전체 문서</span>
-              <span className="count num">{docs.length}</span>
+              <span className="count num">{docs.filter((d) => !isHiddenDoc(categories, d)).length}</span>
+            </button>
+          </div>
+        </li>
+        <li>
+          <div className={`nav-item ${filter.kind === 'schedule' ? 'active' : ''}`}>
+            <button
+              type="button"
+              className="nav-main"
+              aria-current={filter.kind === 'schedule' ? 'page' : undefined}
+              onClick={() => choose({ kind: 'schedule' })}
+            >
+              <IconCalendar className="nav-icon" />
+              <span className="nav-label">일정</span>
             </button>
           </div>
         </li>
@@ -167,27 +222,47 @@ export default function Sidebar({ filter, onFilterChange }: Props) {
       </ul>
 
       <div className="section-header">
-        <span>카테고리</span>
+        <button type="button" className="section-toggle" aria-expanded={docsOpen} onClick={() => setDocsOpen((v) => !v)}>
+          <IconChevron size={12} />
+          문서
+        </button>
         <button
           type="button"
           className="icon-btn"
-          title="카테고리 추가"
-          aria-label="카테고리 추가"
+          title="문서 추가"
+          aria-label="문서 추가"
           onClick={() => setDialog({ kind: 'create' })}
         >
           <IconPlus size={14} />
         </button>
       </div>
 
-      {sorted.length === 0 ? (
-        <div className="sidebar-empty">
-          <p>아직 카테고리가 없습니다. 계약서, 회의록처럼 문서를 묶을 이름을 만들어 두세요.</p>
-          <button type="button" className="btn" onClick={() => setDialog({ kind: 'create' })}>
-            <IconPlus size={14} />첫 카테고리 만들기
-          </button>
-        </div>
-      ) : (
-        <ul className="nav tree">{sorted.map(renderItem)}</ul>
+      {docsOpen &&
+        (sorted.length === 0 ? (
+          <div className="sidebar-empty">
+            <p>아직 문서가 없습니다. 계약서, 회의록처럼 관리할 문서 이름을 만들어 두세요.</p>
+            <button type="button" className="btn" onClick={() => setDialog({ kind: 'create' })}>
+              <IconPlus size={14} />첫 문서 만들기
+            </button>
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="sidebar-empty">
+            <p>모든 문서를 숨겼습니다.</p>
+          </div>
+        ) : (
+          <ul className="nav tree">{visible.map(renderItem)}</ul>
+        ))}
+
+      {hidden.length > 0 && (
+        <>
+          <div className="section-header">
+            <button type="button" className="section-toggle" aria-expanded={hiddenOpen} onClick={() => setHiddenOpen((v) => !v)}>
+              <IconChevron size={12} />
+              숨긴 문서 ({hidden.length})
+            </button>
+          </div>
+          {hiddenOpen && <ul className="nav tree">{hidden.map(renderItem)}</ul>}
+        </>
       )}
     </aside>
 
