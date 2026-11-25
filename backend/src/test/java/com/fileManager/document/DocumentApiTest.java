@@ -67,8 +67,13 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void createDocReturnsDocWithoutNulls() {
+        // given
         String cat = category("계약서");
+
+        // when
         Response r = uploadDoc(cat, "  김철수  ");
+
+        // then
         assertEquals(201, r.status(), r.text());
         JsonNode d = r.json();
         assertEquals("계약서", d.get("title").asString());
@@ -89,21 +94,33 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void createDocKeepsVersionNameOnlyWhenNotDefault() {
+        // given
         String cat = category("a");
+
+        // when: 버전 이름 '초안'으로 만든다
         Response r = multipart(HttpMethod.POST, "/api/documents",
                 Map.of("categoryId", cat, "worker", "김", "versionName", "초안"), Map.of("file", Part.of("a.pdf", "x")));
+
+        // then: 이름이 남는다
         assertEquals("초안", r.json().get("versions").get(0).get("name").asString());
+
+        // when: 다른 카테고리에 기본 이름 ' v1 '으로 만든다
         String cat2 = category("b");
         Response r2 = multipart(HttpMethod.POST, "/api/documents",
                 Map.of("categoryId", cat2, "worker", "김", "versionName", " v1 "), Map.of("file", Part.of("a.pdf", "x")));
+
+        // then: 이름이 없다
         assertFalse(r2.json().get("versions").get(0).has("name"));
     }
 
     @Test
     void createDocRejections() throws Exception {
+        // given
         String cat = category("c");
         Map<String, Part> f = Map.of("file", Part.of("a.pdf", "x"));
         String url = "/api/documents";
+
+        // when & then: 잘못된 요청은 거절되고 파일이 남지 않는다
         assertError(multipart(HttpMethod.POST, url, Map.of("categoryId", cat, "worker", "", "versionName", "여섯글자이상"), f),
                 400, "INVALID_INPUT", VERSION_LONG);
         assertError(multipart(HttpMethod.POST, url, Map.of("categoryId", cat, "worker", "  "), f),
@@ -121,6 +138,7 @@ class DocumentApiTest extends ApiTestSupport {
         assertEquals(0, storedFiles());
         assertEquals(0, storedBodies());
 
+        // when & then: 첫 문서는 만들어지고 같은 카테고리의 두 번째 문서는 충돌이다
         assertEquals(201, uploadDoc(cat, "김").status());
         assertError(uploadDoc(cat, "김"), 409, "CONFLICT", HAS_DOC);
         assertEquals(1, storedFiles());
@@ -141,7 +159,10 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void createDocAcceptsOnlyHwpxAndPdf() {
+        // given
         int n = 0;
+
+        // when & then: .pdf·.hwpx는 대소문자와 관계없이 만들어진다
         for (String name : List.of("a.pdf", "a.PDF", "a.hwpx", "a.HwPx")) {
             String catName = "ok" + n++;
             String cat = category(catName);
@@ -149,6 +170,8 @@ class DocumentApiTest extends ApiTestSupport {
             assertEquals(201, r.status(), r.text());
             assertEquals(catName + " v1" + name.substring(1), r.json().get("versions").get(0).get("files").get(0).get("fileName").asString());
         }
+
+        // when & then: 그 밖의 확장자는 거절되고 문서·파일·폴더가 남지 않는다
         long rows = storedFiles();
         long bodies = storedBodies();
         int docCount = docs().size();
@@ -165,10 +188,15 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void createDocExtensionCheckOrder() {
+        // given
         String cat = category("c");
+
+        // when & then: 작업자 검사는 확장자보다 먼저고, 확장자 검사는 카테고리보다 먼저다
         assertError(createWith(cat, "", "a.exe"), 400, "INVALID_INPUT", WORKER_EMPTY);
         assertError(createWith(cat, "여섯글자이상", "a.exe"), 400, "INVALID_INPUT", WORKER_LONG);
         assertError(createWith(UUID0, "김", "a.exe"), 400, "INVALID_INPUT", DOC_FILE_TYPE);
+
+        // when & then: 문서가 있는 카테고리에서도 확장자 검사가 먼저다
         assertEquals(201, uploadDoc(cat, "김").status());
         assertError(createWith(cat, "김", "a.exe"), 400, "INVALID_INPUT", DOC_FILE_TYPE);
         assertEquals(1, storedFiles());
@@ -177,11 +205,18 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void uploadRevisionAcceptsOnlyHwpxAndPdf() {
+        // given
         JsonNode d = newDoc("c");
         String id = docId(d);
+
+        // when: 대소문자가 섞인 .hwpx·.pdf 쌍을 올린다
         Response ok = revisionWith(id, "김", "a.HWPX", "b.Pdf");
+
+        // then: 쌍이 등록된다
         assertEquals(200, ok.status(), ok.text());
         assertEquals(2, ok.json().get("versions").get(0).get("files").size());
+
+        // when & then: 둘 중 하나라도 다른 확장자면 거절되고 파일이 늘지 않는다
         long rows = storedFiles();
         long bodies = storedBodies();
         String[][] bad = {{"a.pdf", "b.txt"}, {"a.exe", "b.pdf"}, {"a.pdf", "b.EXE"}, {"a", "b.pdf"}, {"a.docx", "b.hwpx"}};
@@ -195,13 +230,18 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void uploadRevisionExtensionCheckOrder() {
+        // given
         JsonNode d = newDoc("c");
         String id = docId(d);
         String url = "/api/documents/" + id + "/revisions";
+
+        // when & then: 쌍·작업자·문서 검사가 확장자보다 먼저다
         assertError(multipart(HttpMethod.POST, url, Map.of("worker", "김"), Map.of("file", Part.of("a.exe", "x"))),
                 400, "INVALID_INPUT", "수정본은 수정대조표와 함께 올려야 등록됩니다.");
         assertError(revisionWith(id, "", "a.exe", "b.exe"), 400, "INVALID_INPUT", WORKER_EMPTY);
         assertError(revisionWith(UUID0, "김", "a.exe", "b.exe"), 404, "NOT_FOUND", DOC_404);
+
+        // when & then: 검토대기로 바꾸면 단계 검사가 확장자보다 먼저다
         fixture(vid(d), "queued");
         assertError(revisionWith(id, "김", "a.exe", "b.exe"), 409, "CONFLICT",
                 "검토대기 단계에서는 파일을 바꿀 수 없습니다. 작업완료를 취소해 작업중으로 돌아가야 합니다.");
@@ -209,15 +249,21 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void createDocTooLargeIs413() {
+        // given
         String cat = category("c");
+
+        // when
         Response r = multipart(HttpMethod.POST, "/api/documents", Map.of("categoryId", cat, "worker", "김"),
                 Map.of("file", new Part("big.pdf", new byte[2048], "application/octet-stream")));
+
+        // then
         assertError(r, 413, "PAYLOAD_TOO_LARGE", "파일이 너무 큽니다. 100MB까지 올릴 수 있습니다.");
         assertEquals(0, docs().size());
     }
 
     @Test
     void concurrentCreateDocOnSameCategoryAllowsOne() throws Exception {
+        // given
         String cat = category("c");
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch go = new CountDownLatch(1);
@@ -229,10 +275,14 @@ class DocumentApiTest extends ApiTestSupport {
             };
             fs.add(pool.submit(job));
         }
+
+        // when
         go.countDown();
         List<Integer> statuses = new ArrayList<>();
         for (Future<Integer> f : fs) statuses.add(f.get());
         pool.shutdown();
+
+        // then
         assertEquals(List.of(201, 409), statuses.stream().sorted().toList());
         assertEquals(1, docs().size());
         assertEquals(1, storedFiles());
@@ -242,9 +292,14 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void listDocsOrderedByCreation() {
+        // given
         JsonNode a = newDoc("첫째");
         JsonNode b = newDoc("둘째");
+
+        // when
         JsonNode list = docs();
+
+        // then
         assertEquals(2, list.size());
         assertEquals(docId(a), list.get(0).get("id").asString());
         assertEquals(docId(b), list.get(1).get("id").asString());
@@ -252,14 +307,20 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void listDocsIsEmptyArrayWithoutDocs() {
+        // when & then
         assertEquals("[]", get("/api/documents").text());
     }
 
     @Test
     void listDocsShowsReviewRecordsWithoutNulls() {
+        // given
         JsonNode d = newDoc("c");
         fixture(vid(d), "rejected");
+
+        // when
         Response r = get("/api/documents");
+
+        // then
         assertFalse(r.text().contains(":null"), r.text());
         JsonNode v = r.json().get(0).get("versions").get(0);
         assertFalse(v.get("workDone").has("worker"));
@@ -284,7 +345,10 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void deletingCategoryMakesDocUnclassifiedAndKeepsTitle() {
+        // when
         JsonNode d = unclassified("계약서");
+
+        // then
         assertTrue(d.has("categoryId"));
         assertTrue(d.get("categoryId").isNull());
         assertEquals("계약서", d.get("title").asString());
@@ -294,7 +358,10 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void renamingCategorySyncsDocTitle() {
+        // given
         JsonNode d = newDoc("옛이름");
+
+        // when & then
         assertEquals(200, put("/api/categories/" + d.get("categoryId").asString(),
                 Map.of("name", "새이름")).status());
         assertEquals("새이름", reload(d).get("title").asString());
@@ -302,9 +369,14 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void assignExistingCategory() {
+        // given
         JsonNode d = unclassified("옛");
         String cat = category("대상");
+
+        // when
         Response r = post(docUrl(d, "/category"), Map.of("categoryId", cat));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertEquals(cat, r.json().get("categoryId").asString());
         assertEquals("대상", r.json().get("title").asString());
@@ -313,8 +385,13 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void assignNewCategory() {
+        // given
         JsonNode d = unclassified("옛");
+
+        // when
         Response r = post(docUrl(d, "/category"), Map.of("newCategory", Map.of("name", " 신규 ")));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertEquals("신규", r.json().get("title").asString());
         Response cats = get("/api/categories");
@@ -324,17 +401,27 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void assignNewCategoryIgnoresUnknownColorKey() {
+        // given
         JsonNode d = unclassified("옛");
+
+        // when
         Response r = post(docUrl(d, "/category"), Map.of("newCategory", Map.of("name", "n", "color", "#1")));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertEquals("n", r.json().get("title").asString());
     }
 
     @Test
     void assignRejections() {
+        // given
         JsonNode d = unclassified("옛");
         String occupied = category("찬곳");
+
+        // when & then: '찬곳'에 문서를 만든다
         assertEquals(201, uploadDoc(occupied, "김").status());
+
+        // when & then: 없는 문서·카테고리, 찬 카테고리, 잘못된 새 카테고리·형식은 거절한다
         String free = category("빈곳");
         category("같은이름");
 
@@ -352,7 +439,7 @@ class DocumentApiTest extends ApiTestSupport {
         assertError(post(docUrl(d, "/category"), Map.of()), 400, "INVALID_INPUT", FORMAT);
         assertError(post(docUrl(d, "/category"), "{broken"), 400, "INVALID_INPUT", FORMAT);
 
-        // 한 번 분류한 뒤에는 옮길 수 없다
+        // when & then: 한 번 분류한 뒤에는 옮길 수 없다
         assertEquals(200, post(docUrl(d, "/category"), Map.of("categoryId", free)).status());
         assertError(post(docUrl(d, "/category"), Map.of("categoryId", category("또"))),
                 409, "CONFLICT", "이미 분류가 있는 문서는 옮길 수 없습니다.");
@@ -363,8 +450,13 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void uploadRevisionAddsPairWithUploader() {
+        // given
         JsonNode d = newDoc("c");
+
+        // when: 수정본 쌍을 올린다
         Response r = addRevision(docId(d), " 박민수 ");
+
+        // then: 올린 사람과 파일 이름이 남는다
         assertEquals(200, r.status(), r.text());
         JsonNode files = r.json().get("versions").get(0).get("files");
         assertEquals(2, files.size());
@@ -376,14 +468,19 @@ class DocumentApiTest extends ApiTestSupport {
         assertEquals("c v1 수정대조표.pdf", files.get(1).get("revision").get("fileName").asString());
         assertEquals("박민수", files.get(1).get("revision").get("uploadedBy").asString());
         assertFalse(files.get(1).get("revision").has("revision"));
+
+        // when & then: 한 쌍 더 올리면 파일이 셋이다
         assertEquals(200, addRevision(docId(d), "김").status());
         assertEquals(3, reload(d).get("versions").get(0).get("files").size());
     }
 
     @Test
     void uploadRevisionRejections() throws Exception {
+        // given
         JsonNode d = newDoc("c");
         String id = docId(d);
+
+        // when & then: 잘못된 작업자·문서·파일 구성은 거절되고 파일이 늘지 않는다
         assertError(addRevision(id, ""), 400, "INVALID_INPUT", WORKER_EMPTY);
         assertError(addRevision(id, "여섯글자이상"), 400, "INVALID_INPUT", WORKER_LONG);
         assertError(addRevision(UUID0, "김"), 404, "NOT_FOUND", DOC_404);
@@ -398,13 +495,20 @@ class DocumentApiTest extends ApiTestSupport {
         assertEquals(1, storedFiles());
         assertEquals(1, storedBodies());
 
+        // when & then: 검토대기
         String lock = " 단계에서는 파일을 바꿀 수 없습니다. 작업완료를 취소해 작업중으로 돌아가야 합니다.";
         fixture(vid(d), "queued");
         assertError(addRevision(id, "김"), 409, "CONFLICT", "검토대기" + lock);
+
+        // when & then: 검토중
         jdbc.sql("UPDATE document_versions SET review_started_at = CURRENT_TIMESTAMP(6) WHERE id = :v").param("v", vid(d)).update();
         assertError(addRevision(id, "김"), 409, "CONFLICT", "검토중" + lock);
+
+        // when & then: 발송대기
         jdbc.sql("UPDATE document_versions SET review_result = 'accept', reviewed_at = CURRENT_TIMESTAMP(6) WHERE id = :v").param("v", vid(d)).update();
         assertError(addRevision(id, "김"), 409, "CONFLICT", "발송대기" + lock);
+
+        // when & then: 발송됨
         jdbc.sql("UPDATE document_versions SET sent_at = CURRENT_TIMESTAMP(6), sent_to = '', sent_memo = '' WHERE id = :v").param("v", vid(d)).update();
         assertError(addRevision(id, "김"), 409, "CONFLICT", SENT_EDIT);
         assertEquals(1, storedFiles());
@@ -413,8 +517,11 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void uploadRevisionAllowedAfterRejection() {
+        // given
         JsonNode d = newDoc("c");
         fixture(vid(d), "rejected");
+
+        // when & then
         assertEquals(200, addRevision(docId(d), "김").status());
     }
 
@@ -422,16 +529,24 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void deleteLatestRevisionRemovesPairAndBodies() throws Exception {
+        // given
         JsonNode d = newDoc("c");
+
+        // when: 수정본 쌍을 두 번 올린다
         addRevision(docId(d), "김");
         JsonNode two = addRevision(docId(d), "김").json();
+
+        // then: 원본과 두 쌍이 저장된다
         JsonNode files = two.get("versions").get(0).get("files");
         String rev1 = files.get(1).get("id").asString();
         String rev2 = files.get(2).get("id").asString();
         String rev2Diff = files.get(2).get("revision").get("id").asString();
         assertEquals(5, storedFiles());
 
+        // when: 최신 수정본을 지운다
         Response r = delete(docUrl(d, "/revisions/" + rev2));
+
+        // then: 그 쌍과 본문만 지워진다
         assertEquals(200, r.status(), r.text());
         assertEquals(2, r.json().get("versions").get(0).get("files").size());
         assertEquals(3, storedFiles());
@@ -443,16 +558,20 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void deleteLatestRevisionRejections() {
+        // given
         JsonNode d = newDoc("c");
         String orig = d.get("versions").get(0).get("files").get(0).get("id").asString();
         String id = docId(d);
         String latestOnly = "가장 최신 수정본만 삭제할 수 있습니다.";
+
+        // when & then: 없는 문서, 원본, 없는 수정본은 지울 수 없다
         assertError(delete("/api/documents/" + UUID0 + "/revisions/" + orig), 404, "NOT_FOUND", DOC_404);
         assertError(delete("/api/documents/abc/revisions/" + orig), 404, "NOT_FOUND", DOC_404);
         assertError(delete(docUrl(d, "/revisions/" + orig)), 409, "CONFLICT", "원본은 삭제할 수 없습니다.");
         assertError(delete(docUrl(d, "/revisions/" + UUID0)), 409, "CONFLICT", latestOnly);
         assertError(delete(docUrl(d, "/revisions/abc")), 409, "CONFLICT", latestOnly);
 
+        // when & then: 수정본 쌍을 두 번 올리면 최신이 아닌 수정본과 원본은 지울 수 없다
         JsonNode withTwo = addRevision(id, "김").json();
         String first = withTwo.get("versions").get(0).get("files").get(1).get("id").asString();
         JsonNode withThree = addRevision(id, "김").json();
@@ -460,9 +579,12 @@ class DocumentApiTest extends ApiTestSupport {
         assertError(delete(docUrl(d, "/revisions/" + orig)), 409, "CONFLICT", "원본은 삭제할 수 없습니다.");
         String last = withThree.get("versions").get(0).get("files").get(2).get("id").asString();
 
+        // when & then: 검토대기
         fixture(vid(d), "queued");
         assertError(delete(docUrl(d, "/revisions/" + last)), 409, "CONFLICT",
                 "검토대기 단계에서는 파일을 바꿀 수 없습니다. 작업완료를 취소해 작업중으로 돌아가야 합니다.");
+
+        // when & then: 발송됨
         jdbc.sql("UPDATE document_versions SET review_started_at = CURRENT_TIMESTAMP(6), review_result = 'accept', reviewed_at = CURRENT_TIMESTAMP(6), sent_at = CURRENT_TIMESTAMP(6), sent_to = '', sent_memo = '' WHERE id = :v")
                 .param("v", vid(d)).update();
         assertError(delete(docUrl(d, "/revisions/" + last)), 409, "CONFLICT", SENT_EDIT);
@@ -473,22 +595,32 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void renameVersionStoresNameOrDropsDefault() {
+        // given
         JsonNode d = newDoc("c");
         String v = vid(d);
         String url = docUrl(d, "/versions/" + v);
+
+        // when & then: 이름은 다듬어 저장하고 기본 이름 'v1'은 지운다
         assertEquals("최종", versions(patch(url, Map.of("name", " 최종 "))).get(0).get("name").asString());
         assertFalse(versions(patch(url, Map.of("name", "v1"))).get(0).has("name"));
+
+        // when & then: 빈 이름도 지운다
         patch(url, Map.of("name", "최종"));
         assertFalse(versions(patch(url, Map.of("name", ""))).get(0).has("name"));
+
+        // when & then: 5자까지 받는다
         assertEquals("abcde", versions(patch(url, Map.of("name", "abcde"))).get(0).get("name").asString());
     }
 
     @Test
     void renameVersionRejections() {
+        // given
         JsonNode d = newDoc("c");
         JsonNode other = newDoc("o");
         String v = vid(d);
         String url = docUrl(d, "/versions/" + v);
+
+        // when & then: 없는 문서·버전, 긴 이름, 형식 오류는 거절한다
         assertError(patch("/api/documents/" + UUID0 + "/versions/" + v, Map.of("name", "a")), 404, "NOT_FOUND", DOC_404);
         assertError(patch(docUrl(d, "/versions/" + UUID0), Map.of("name", "a")), 404, "NOT_FOUND", VER_404);
         assertError(patch(docUrl(d, "/versions/abc"), Map.of("name", "a")), 404, "NOT_FOUND", VER_404);
@@ -496,8 +628,11 @@ class DocumentApiTest extends ApiTestSupport {
         assertError(patch(url, Map.of("name", "여섯글자이상")), 400, "INVALID_INPUT", VERSION_LONG);
         assertError(patch(url, Map.of()), 400, "INVALID_INPUT", FORMAT);
 
+        // when & then: 발송된 버전의 이름은 바꿀 수 없다
         fixture(v, "sent");
         assertError(patch(url, Map.of("name", "a")), 409, "CONFLICT", "발송된 버전의 이름은 바꿀 수 없습니다.");
+
+        // when & then: 새 버전 이름을 기존 버전 이름으로 바꿀 수 없다
         assertEquals(200, startVersion(d, "둘째", "김").status());
         JsonNode v2 = lastVersion(reload(d));
         assertError(patch(docUrl(d, "/versions/" + v2.get("id").asString()), Map.of("name", "v1")),
@@ -508,12 +643,16 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void startVersionTakesLastSubmittedFileAsOriginal() {
+        // given
         JsonNode d = newDoc("c");
         JsonNode withRev = addRevision(docId(d), "김").json();
         String submitted = withRev.get("versions").get(0).get("files").get(1).get("id").asString();
         fixture(vid(d), "sent");
 
+        // when
         Response r = startVersion(d, "", " 박민수 ");
+
+        // then
         assertEquals(200, r.status(), r.text());
         JsonNode v2 = r.json().get("versions").get(1);
         assertEquals(2, v2.get("number").asInt());
@@ -529,13 +668,18 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void startVersionRejections() {
+        // given
         JsonNode d = newDoc("c");
+
+        // when & then: 작업자·문서·형식 오류와 발송 전 버전이 있으면 거절한다
         assertError(startVersion(d, "", ""), 400, "INVALID_INPUT", WORKER_EMPTY);
         assertError(startVersion(d, "", "여섯글자이상"), 400, "INVALID_INPUT", WORKER_LONG);
         assertError(post("/api/documents/" + UUID0 + "/versions", Map.of("versionName", "", "worker", "김")),
                 404, "NOT_FOUND", DOC_404);
         assertError(post(docUrl(d, "/versions"), Map.of("worker", "김")), 400, "INVALID_INPUT", FORMAT);
         assertError(startVersion(d, "", "김"), 409, "CONFLICT", "발송 전인 버전이 있습니다. 발송 후에 새 버전을 시작할 수 있습니다.");
+
+        // when & then: 발송 뒤에도 긴 이름과 같은 이름은 거절하고 버전이 늘지 않는다
         fixture(vid(d), "sent");
         assertError(startVersion(d, "여섯글자이상", "김"), 400, "INVALID_INPUT", VERSION_LONG);
         assertError(startVersion(d, "v1", "김"), 409, "CONFLICT", DUP);
@@ -544,10 +688,15 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void startVersionRejectsNameEqualToExistingCustomName() {
+        // given
         JsonNode d = newDoc("c");
         patch(docUrl(d, "/versions/" + vid(d)), Map.of("name", "최종"));
         fixture(vid(d), "sent");
+
+        // when & then: 바꾼 이름과 같으면 거절한다
         assertError(startVersion(d, "최종", "김"), 409, "CONFLICT", DUP);
+
+        // when & then: 다른 이름 'v2'는 받는다
         assertEquals(200, startVersion(d, "v2", "김").status());
     }
 
@@ -555,15 +704,23 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void deleteVersionKeepsSharedOriginal() throws Exception {
+        // given
         JsonNode d = newDoc("c");
+
+        // when: v1에 수정본을 올려 발송하고 v2를 시작해 수정본을 올린다
         String shared = addRevision(docId(d), "김").json().get("versions").get(0).get("files").get(1).get("id").asString();
         fixture(vid(d), "sent");
         startVersion(d, "", "김");
         JsonNode v2 = addRevision(docId(d), "김").json();
+
+        // then: 파일이 다섯 개다
         String v2Rev = v2.get("versions").get(1).get("files").get(1).get("id").asString();
         assertEquals(5, storedFiles());
 
+        // when: v2를 지운다
         Response r = delete(docUrl(d, "/versions/" + vid(v2)));
+
+        // then: v1과 공유하는 원본은 남고 v2 수정본만 지워진다
         assertEquals(200, r.status(), r.text());
         assertEquals(1, r.json().get("versions").size());
         assertEquals(3, storedFiles());
@@ -575,26 +732,37 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void deletingOnlyVersionRemovesDocAndFreesCategory() throws Exception {
+        // given
         JsonNode d = newDoc("c");
+
+        // when: 하나뿐인 버전을 지운다
         Response r = delete(docUrl(d, "/versions/" + vid(d)));
+
+        // then: 문서와 파일이 모두 지워진다
         assertEquals(204, r.status());
         assertEquals(0, r.bytes().length);
         assertEquals(0, docs().size());
         assertEquals(0, storedFiles());
         assertEquals(0, storedBodies());
+
+        // when & then: 그 카테고리에 다시 문서를 만들 수 있다
         assertEquals(201, uploadDoc(d.get("categoryId").asString(), "김").status());
     }
 
     @Test
     void deleteVersionRejections() {
+        // given
         JsonNode d = newDoc("c");
         JsonNode other = newDoc("o");
         String v = vid(d);
+
+        // when & then: 없는 문서·버전과 다른 문서의 버전은 찾을 수 없다
         assertError(delete("/api/documents/" + UUID0 + "/versions/" + v), 404, "NOT_FOUND", DOC_404);
         assertError(delete(docUrl(d, "/versions/" + UUID0)), 404, "NOT_FOUND", VER_404);
         assertError(delete(docUrl(d, "/versions/abc")), 404, "NOT_FOUND", VER_404);
         assertError(delete(docUrl(d, "/versions/" + vid(other))), 404, "NOT_FOUND", VER_404);
 
+        // when & then: 발송된 버전은 지울 수 없다
         fixture(v, "sent");
         assertError(delete(docUrl(d, "/versions/" + v)), 409, "CONFLICT", "발송된 버전은 삭제할 수 없습니다.");
         assertEquals(1, reload(d).get("versions").size());
@@ -602,6 +770,7 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void deleteOlderVersionIsRejectedAsNotLatest() {
+        // given
         JsonNode d = newDoc("c");
         String v1 = vid(d);
         // v1은 발송 전으로 두고 더 새로운 발송 버전 v2를 SQL로 만든다(정상 흐름에서는 나올 수 없는 상태)
@@ -611,6 +780,8 @@ class DocumentApiTest extends ApiTestSupport {
                 VALUES (:id, :d, 2, 'v2', 'v2', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6),
                   'accept', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6), '', '')""")
                 .param("id", newId()).param("d", docId(d)).update();
+
+        // when & then
         // v2는 발송됐고 v1은 발송 전이므로 v1 삭제는 '최신 아님'
         assertError(delete(docUrl(d, "/versions/" + v1)), 409, "CONFLICT", "최신 버전만 삭제할 수 있습니다.");
     }
@@ -632,7 +803,10 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void createDocWithoutFileMakesEmptyV1() {
+        // when
         JsonNode d = emptyDoc("빈문서");
+
+        // then
         JsonNode v = d.get("versions").get(0);
         assertEquals(1, v.get("number").asInt());
         assertEquals("김철수", v.get("worker").asString());
@@ -644,7 +818,10 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void uploadOriginalToEmptyVersion() {
+        // given
         JsonNode d = emptyDoc("원본");
+
+        // when & then: 원본 하나가 아니거나 형식이 다르면 거절되고 파일이 남지 않는다
         assertError(revisions(d, Map.of("file", Part.of("a.pdf", "x"), "revision", Part.of("b.pdf", "y"))),
                 400, "INVALID_INPUT", ORIGINAL_ONLY);
         assertError(revisions(d, Map.of("revision", Part.of("b.pdf", "y"))), 400, "INVALID_INPUT", ORIGINAL_ONLY);
@@ -653,7 +830,10 @@ class DocumentApiTest extends ApiTestSupport {
         assertEquals(0, storedFiles());
         assertEquals(0, storedBodies());
 
+        // when: 원본 하나를 올린다
         Response ok = revisions(d, Map.of("file", Part.of("a.hwpx", "x")));
+
+        // then: 대조표 없이 원본으로 저장된다
         assertEquals(200, ok.status(), ok.text());
         JsonNode files = lastVersion(ok.json()).get("files");
         assertEquals(1, files.size());
@@ -663,10 +843,14 @@ class DocumentApiTest extends ApiTestSupport {
         assertTrue(java.nio.file.Files.exists(storageRoot().resolve("원본").resolve("v1")
                 .resolve(files.get(0).get("downloadName").asString())));
 
-        // 원본이 생긴 뒤에는 지금의 수정본+대조표 쌍 규칙
+        // when & then: 원본이 생긴 뒤에는 지금의 수정본+대조표 쌍 규칙이다
         assertError(revisions(d, Map.of("file", Part.of("a.pdf", "x"))), 400, "INVALID_INPUT",
                 "수정본은 수정대조표와 함께 올려야 등록됩니다.");
+
+        // when: 수정본 쌍을 올린다
         Response pair = addRevision(docId(d), "박");
+
+        // then: 쌍이 edit1 폴더에 등록된다
         assertEquals(200, pair.status(), pair.text());
         JsonNode fs = lastVersion(pair.json()).get("files");
         assertEquals(2, fs.size());
@@ -676,15 +860,28 @@ class DocumentApiTest extends ApiTestSupport {
 
     @Test
     void emptyDocListDeleteRevisionRenameCategoryAndDelete() {
+        // given
         JsonNode d = emptyDoc("목록");
         String cat = d.get("categoryId").asString();
+
+        // when & then: 목록에 파일 없는 버전으로 보인다
         assertEquals(0, docs().get(0).get("versions").get(0).get("files").size());
+
+        // when & then: 지울 수정본이 없다
         assertError(delete(docUrl(d, "/revisions/" + UUID0)), 409, "CONFLICT", "가장 최신 수정본만 삭제할 수 있습니다.");
+
+        // when: 카테고리 이름을 바꾼다
         Response renamed = put("/api/categories/" + cat, Map.of("name", "새목록"));
+
+        // then: 제목과 폴더가 따라 바뀐다
         assertEquals(200, renamed.status(), renamed.text());
         assertEquals("새목록", reload(d).get("title").asString());
         assertTrue(java.nio.file.Files.isDirectory(storageRoot().resolve("새목록").resolve("v1")));
+
+        // when: 하나뿐인 버전을 지운다
         Response gone = delete(docUrl(d, "/versions/" + vid(d)));
+
+        // then: 문서가 없어진다
         assertEquals(204, gone.status(), gone.text());
         assertEquals(0, docs().size());
     }
