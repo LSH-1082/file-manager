@@ -41,10 +41,14 @@ class SchemaMigrationTest {
 
     @Test
     void v3KeepsExistingSchedulesWithoutGroup() {
+        // when: V2까지 적용한다
         migrateTo("2");
+
+        // then: V3 테이블은 아직 없다
         assertEquals(0, tables("schedule_groups"));
         assertEquals(0, tables("schedule_settings"));
 
+        // when: 기존 문서와 일정 행 2개를 넣는다
         String doc = UUID.randomUUID().toString();
         jdbc.sql("""
                 INSERT INTO documents (id, category_id, title, dir_name, created_at, updated_at)
@@ -57,11 +61,15 @@ class SchemaMigrationTest {
                             TIMESTAMP '2026-11-01 01:02:03.456789', TIMESTAMP '2026-11-02 04:05:06.789012')""")
                     .param("i", UUID.randomUUID().toString()).param("d", doc).param("m", memo).update();
         }
+
+        // then: 일정 행 2개가 있다
         List<Map<String, Object>> before = scheduleRows();
         assertEquals(2, before.size());
 
+        // when: V3를 적용한다
         migrateTo("3");
 
+        // then: 일정 행은 그대로 그룹 없이 남고, 빈 그룹 테이블과 기본 설정 행이 생긴다
         assertEquals(before, scheduleRows());
         assertEquals(2L, jdbc.sql("SELECT count(*) FROM schedules WHERE group_id IS NULL").query(Long.class).single());
         assertEquals(1, tables("schedule_groups"));
@@ -76,6 +84,7 @@ class SchemaMigrationTest {
 
     @Test
     void v3ForeignKeyEmptiesGroupIdWhenGroupIsDeleted() {
+        // given
         migrateTo("3");
         String doc = UUID.randomUUID().toString();
         String group = UUID.randomUUID().toString();
@@ -95,8 +104,10 @@ class SchemaMigrationTest {
                         TIMESTAMP '2026-11-01 00:00:00', TIMESTAMP '2026-11-01 00:00:00', :g)""")
                 .param("i", schedule).param("d", doc).param("g", group).update();
 
+        // when
         jdbc.sql("DELETE FROM schedule_groups WHERE id = :g").param("g", group).update();
 
+        // then
         assertEquals(1L, jdbc.sql("SELECT count(*) FROM schedules WHERE id = :i AND group_id IS NULL")
                 .param("i", schedule).query(Long.class).single());
     }

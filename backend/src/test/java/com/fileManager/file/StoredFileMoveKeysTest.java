@@ -24,9 +24,14 @@ class StoredFileMoveKeysTest extends ApiTestSupport {
 
     @Test
     void movesKeysUnderFolderWithSupplementaryCharacters() {
+        // given
         insert("계약😀/v1/a.txt");
         insert("계약😀x/v1/b.txt"); // 이름만 비슷한 다른 폴더는 건드리지 않는다
+
+        // when
         service.moveKeys("계약😀", "계약🎉🎉");
+
+        // then
         assertEquals("계약🎉🎉/v1/a.txt", key("계약🎉🎉/%"));
         assertEquals("계약😀x/v1/b.txt", key("계약😀x/%"));
     }

@@ -59,8 +59,10 @@ class ArchitectureTest {
 
     @Test
     void architectureRulesHold() throws IOException {
+        // given
         List<String> violations = new ArrayList<>();
 
+        // when: 소스를 읽어 규칙 위반을 모은다
         // (a) 옛 패키지 잔재(main·test 모두)
         for (String dir : List.of("src/main/java", "src/test/java")) {
             for (Path p : javaFiles(dir)) {
@@ -153,6 +155,7 @@ class ArchitectureTest {
             }
         }
 
+        // then: 위반이 없다
         assertTrue(violations.isEmpty(), "아키텍처 위반 " + violations.size() + "건:\n" + String.join("\n", violations));
     }
 }

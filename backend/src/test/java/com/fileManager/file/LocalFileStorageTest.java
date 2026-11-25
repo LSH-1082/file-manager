@@ -44,8 +44,13 @@ class LocalFileStorageTest {
 
     @Test
     void caseOnlyRenameKeepsExactNameAndContent() throws IOException {
+        // given
         folder("Contract", "a.txt");
+
+        // when
         String result = storage.renameDir("", "Contract", "contract", Set.of());
+
+        // then
         assertEquals("contract", result);
         assertEquals(List.of("contract"), names(storage.root()));
         assertTrue(Files.exists(storage.root().resolve("contract").resolve("a.txt")));
@@ -53,16 +58,28 @@ class LocalFileStorageTest {
 
     @Test
     void sameNameIsReturnedAsIs() throws IOException {
+        // given
         folder("Contract", "a.txt");
-        assertEquals("Contract", storage.renameDir("", "Contract", "Contract", Set.of()));
+
+        // when
+        String result = storage.renameDir("", "Contract", "Contract", Set.of());
+
+        // then
+        assertEquals("Contract", result);
         assertEquals(List.of("Contract"), names(storage.root()));
     }
 
     @Test
     void existingDifferentFolderGetsNumberSuffix() throws IOException {
+        // given
         folder("one", "a.txt");
         folder("two", "b.txt");
-        assertEquals("two (2)", storage.renameDir("", "one", "two", Set.of()));
+
+        // when
+        String result = storage.renameDir("", "one", "two", Set.of());
+
+        // then
+        assertEquals("two (2)", result);
         assertEquals(List.of("two", "two (2)"), names(storage.root()));
         assertEquals("one", Files.readString(storage.root().resolve("two (2)").resolve("a.txt")));
         assertEquals("two", Files.readString(storage.root().resolve("two").resolve("b.txt")));
@@ -70,6 +87,7 @@ class LocalFileStorageTest {
 
     @Test
     void caseSensitiveFileSystemKeepsOtherFolderWhenNamesDifferOnlyByCase() throws IOException {
+        // given
         Path probe = Files.createDirectories(tmp.resolve("probe"));
         Files.createDirectory(probe.resolve("a"));
         boolean sensitive;
@@ -83,7 +101,12 @@ class LocalFileStorageTest {
 
         folder("Contract", "upper.txt");
         folder("contract", "lower.txt");
-        assertEquals("contract (2)", storage.renameDir("", "Contract", "contract", Set.of()));
+
+        // when
+        String result = storage.renameDir("", "Contract", "contract", Set.of());
+
+        // then
+        assertEquals("contract (2)", result);
         assertEquals(List.of("contract", "contract (2)"), names(storage.root()));
         assertEquals("contract", Files.readString(storage.root().resolve("contract").resolve("lower.txt")));
         assertEquals("Contract", Files.readString(storage.root().resolve("contract (2)").resolve("upper.txt")));
@@ -103,8 +126,13 @@ class LocalFileStorageTest {
 
     @Test
     void renameFileChangesNameAndKeepsContent() throws IOException {
+        // given
         String key = file("재무/v1", "a.pdf", "body");
+
+        // when
         String result = storage.renameFile(key, "b.pdf");
+
+        // then
         assertEquals("재무/v1/b.pdf", result);
         assertEquals(List.of("b.pdf"), names(storage.root().resolve("재무/v1")));
         assertEquals("body", Files.readString(storage.root().resolve(result)));
@@ -112,16 +140,27 @@ class LocalFileStorageTest {
 
     @Test
     void renameFileSameNameKeepsKey() throws IOException {
+        // given
         String key = file("d", "a.pdf", "x");
-        assertEquals(key, storage.renameFile(key, "a.pdf"));
+
+        // when
+        String result = storage.renameFile(key, "a.pdf");
+
+        // then
+        assertEquals(key, result);
         assertEquals(List.of("a.pdf"), names(storage.root().resolve("d")));
     }
 
     @Test
     void renameFileAddsNumberWhenTargetExists() throws IOException {
+        // given
         file("d", "이름.pdf", "other");
         String key = file("d", "a.pdf", "mine");
+
+        // when
         String result = storage.renameFile(key, "이름.pdf");
+
+        // then
         assertEquals("d/이름 (2).pdf", result);
         assertEquals("other", Files.readString(storage.root().resolve("d/이름.pdf")));
         assertEquals("mine", Files.readString(storage.root().resolve(result)));
@@ -129,16 +168,27 @@ class LocalFileStorageTest {
 
     @Test
     void renameFileKeepsKeyWhenAlreadyNumberedSameName() throws IOException {
+        // given
         file("d", "이름.pdf", "other");
         String key = file("d", "이름 (2).pdf", "mine");
-        assertEquals(key, storage.renameFile(key, "이름.pdf"));
+
+        // when
+        String result = storage.renameFile(key, "이름.pdf");
+
+        // then
+        assertEquals(key, result);
         assertEquals(List.of("이름 (2).pdf", "이름.pdf"), names(storage.root().resolve("d")));
     }
 
     @Test
     void renameFileCaseOnlyChange() throws IOException {
+        // given
         String key = file("d", "Contract v1.pdf", "body");
+
+        // when
         String result = storage.renameFile(key, "contract v1.pdf");
+
+        // then
         assertEquals("d/contract v1.pdf", result);
         assertEquals(List.of("contract v1.pdf"), names(storage.root().resolve("d")));
         assertEquals("body", Files.readString(storage.root().resolve(result)));
@@ -146,32 +196,49 @@ class LocalFileStorageTest {
 
     @Test
     void renameFileReplacesForbiddenCharacters() throws IOException {
+        // given
         String key = file("d", "a.pdf", "x");
-        assertEquals("d/a_b_c_ v1.pdf", storage.renameFile(key, "a/b:c? v1.pdf"));
+
+        // when
+        String result = storage.renameFile(key, "a/b:c? v1.pdf");
+
+        // then
+        assertEquals("d/a_b_c_ v1.pdf", result);
         assertEquals(List.of("a_b_c_ v1.pdf"), names(storage.root().resolve("d")));
     }
 
     @Test
     void storeNumbersSameNameTwice() throws IOException {
+        // when & then: 처음 저장은 이름 그대로다
         assertEquals("d/x.pdf", storage.store(upload("x.pdf", "1"), "d", "x.pdf"));
+
+        // when & then: 같은 이름을 다시 저장하면 (2)가 붙는다
         assertEquals("d/x (2).pdf", storage.store(upload("x.pdf", "2"), "d", "x.pdf"));
     }
 
     /** 폴더 이름 변경 뒤 그 안 파일 이름 변경이 함께 롤백돼도 파일을 먼저 되돌려 원래대로 돌아온다. */
     @Test
     void rollbackRunsInReverseOrder() throws IOException {
+        // given
         String key = file("재무/v1", "재무 v1_x.pdf", "body");
         TransactionSynchronizationManager.initSynchronization();
         try {
+            // when: 폴더와 그 안 파일의 이름을 바꾼다
             storage.renameDir("", "재무", "회계", Set.of());
             storage.renameFile("회계/v1/재무 v1_x.pdf", "회계 v1_x.pdf");
+
+            // then: 바뀐 이름으로 있다
             assertTrue(Files.exists(storage.root().resolve("회계/v1/회계 v1_x.pdf")));
+
+            // when: 트랜잭션 롤백을 알린다
             for (TransactionSynchronization s : TransactionSynchronizationManager.getSynchronizations()) {
                 s.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
             }
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
+
+        // then: 원래 이름과 본문으로 돌아온다
         assertEquals("body", Files.readString(storage.root().resolve(key)));
         assertFalse(Files.exists(storage.root().resolve("회계")));
         assertEquals(List.of("재무"), names(storage.root()));

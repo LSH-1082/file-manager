@@ -95,11 +95,16 @@ class DocumentListConsistencyTest extends ApiTestSupport {
     @Test
     @Timeout(60)
     void concurrentCancelRejectDoesNotBreakList() throws Exception {
+        // given
         JsonNode doc = rejectedDoc("재무", false);
         String id = docId(doc);
         Response[] res = new Response[1];
+
+        // when: 목록을 조립하는 도중 거절을 취소한다
         List<DocResponse> listed = listDuringMutation(
                 () -> post("/api/documents/" + id + "/cancel", Map.of("step", "reject")), res);
+
+        // then: 목록은 취소 전 검토본까지 온전하고, 취소는 그 뒤 커밋된다
         assertEquals(1, listed.size());
         assertEquals(1, latestVersion(listed.get(0)).reviews().size());
         assertNotNull(latestVersion(listed.get(0)).reviews().get(0).reviewFile());
@@ -112,12 +117,17 @@ class DocumentListConsistencyTest extends ApiTestSupport {
     @Test
     @Timeout(60)
     void concurrentDeleteRevisionWithReviewCopyDoesNotBreakList() throws Exception {
+        // given
         JsonNode doc = rejectedDoc("재무", true);
         String id = docId(doc);
         String revisionId = latest(doc).get("files").get(1).get("id").asString();
         Response[] res = new Response[1];
+
+        // when: 목록을 조립하는 도중 검토본이 붙은 수정본을 지운다
         List<DocResponse> listed = listDuringMutation(
                 () -> delete("/api/documents/" + id + "/revisions/" + revisionId), res);
+
+        // then: 목록은 삭제 전 상태로 온전하고, 삭제는 그 뒤 커밋된다
         assertEquals(1, listed.size());
         DocVersionResponse v = latestVersion(listed.get(0));
         assertTrue(v.files().stream().anyMatch(f -> f.id().equals(revisionId)));
