@@ -108,14 +108,20 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void categoryCreatesFolder() throws IOException {
+        // when
         category("계약");
+
+        // then
         assertTrue(Files.isDirectory(at("계약")));
         assertEquals(Set.of("계약"), names(storageRoot()));
     }
 
     @Test
     void firstUploadStoresOriginalInV1() throws IOException {
+        // when
         JsonNode doc = newDoc("계약");
+
+        // then
         JsonNode f = orig(doc);
         String n = st(f, "계약 v1", ".pdf");
         assertEquals("original", read(at("계약", "v1", n)));
@@ -128,10 +134,15 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void revisionAndRevisionSheetGoToEditFolder() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         String origName = st(orig(doc), "계약 v1", ".pdf");
+
+        // when: 첫 수정본을 올린다
         JsonNode d1 = addRevision(id, "김철수").json();
+
+        // then: v1/edit1에 수정본과 대조표가 생긴다
         assertEquals(Set.of(origName, "edit1"), names(at("계약", "v1")));
         Path edit1 = at("계약", "v1", "edit1");
         JsonNode first = latest(d1).get("files").get(1);
@@ -146,7 +157,10 @@ class StorageLayoutApiTest extends ApiTestSupport {
         assertEquals("계약 v1 수정대조표.pdf", first.get("revision").get("fileName").asString());
         assertEquals(diff1, first.get("revision").get("downloadName").asString());
 
+        // when: 두 번째 수정본을 올린다
         JsonNode d2 = addRevision(id, "김철수").json();
+
+        // then: v1/edit2에 따로 저장되고 앞 파일도 그대로 받을 수 있다
         assertEquals(Set.of(origName, "edit1", "edit2"), names(at("계약", "v1")));
         Path edit2 = at("계약", "v1", "edit2");
         JsonNode second = latest(d2).get("files").get(2);
@@ -166,10 +180,15 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void revisionNamesDifferEvenWithSameOriginalNames() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
+
+        // when: 같은 이름의 수정본과 대조표를 올린다
         Response r = multipart(HttpMethod.POST, "/api/documents/" + id + "/revisions", Map.of("worker", "김철수"),
                 Map.of("file", Part.of("a.pdf", "x"), "revision", Part.of("a.pdf", "y")));
+
+        // then: 저장 이름이 서로 다르다
         assertEquals(200, r.status(), r.text());
         Path edit1 = at("계약", "v1", "edit1");
         JsonNode f = latest(r.json()).get("files").get(1);
@@ -179,20 +198,33 @@ class StorageLayoutApiTest extends ApiTestSupport {
         assertEquals("x", read(edit1.resolve(first)));
         assertEquals("y", read(edit1.resolve(second)));
 
-        assertEquals(200, delete("/api/documents/" + id + "/revisions/" + fileId(latest(r.json()), 1)).status());
+        // when: 수정본을 지운다
+        Response removed = delete("/api/documents/" + id + "/revisions/" + fileId(latest(r.json()), 1));
+
+        // then: 지워진다
+        assertEquals(200, removed.status());
+
+        // when: 확장자 없는 파일을 올린다
         r = multipart(HttpMethod.POST, "/api/documents/" + id + "/revisions", Map.of("worker", "김철수"),
                 Map.of("file", Part.of("readme", "x"), "revision", Part.of("diff", "y")));
+
+        // then: 거절되고 edit1 폴더도 만들지 않는다
         assertError(r, 400, "INVALID_INPUT", ".hwpx 또는 .pdf 파일만 올릴 수 있습니다.");
         assertFalse(Files.exists(edit1));
     }
 
     @Test
     void deletingLatestRevisionRemovesBothFilesAndEditFolder() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         JsonNode withRev = addRevision(id, "김철수").json();
         String revId = fileId(latest(withRev), 1);
+
+        // when
         Response r = delete("/api/documents/" + id + "/revisions/" + revId);
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertEquals(Set.of(st(orig(doc), "계약 v1", ".pdf")), names(at("계약", "v1")));
         assertFalse(Files.exists(at("계약", "v1", "edit1")));
@@ -201,12 +233,17 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void renamingVersionMovesEditFolder() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         JsonNode withRev = addRevision(id, "김철수").json();
         JsonNode rev = latest(withRev).get("files").get(1);
+
+        // when
         Response r = patch("/api/documents/" + id + "/versions/" + latest(withRev).get("id").asString(),
                 Map.of("name", "초안"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertFalse(Files.exists(at("계약", "v1")));
         assertEquals(2, names(at("계약", "초안", "edit1")).size());
@@ -220,11 +257,16 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void renamingWorkingVersionRenamesFolderAndFiles() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         JsonNode withRev = addRevision(id, "김철수").json();
         JsonNode v = latest(withRev);
+
+        // when
         Response r = patch("/api/documents/" + id + "/versions/" + v.get("id").asString(), Map.of("name", "초안"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertFalse(Files.exists(at("계약", "v1")));
         JsonNode o = orig(r.json());
@@ -242,10 +284,15 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void newVersionCreatesFolderAndSharesSubmittedOriginal() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         fixture(latest(doc).get("id").asString(), "sent");
+
+        // when
         Response r = post("/api/documents/" + id + "/versions", Map.of("versionName", "v2", "worker", "김철수"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertTrue(Files.isDirectory(at("계약", "v2")));
         assertEquals(Set.of(), names(at("계약", "v2")));
@@ -257,12 +304,17 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void newVersionOriginalCanPointIntoPreviousEditFolder() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         JsonNode withRev = addRevision(id, "김철수").json();
         String revName = latest(withRev).get("files").get(1).get("downloadName").asString();
         fixture(latest(withRev).get("id").asString(), "sent");
+
+        // when
         Response r = post("/api/documents/" + id + "/versions", Map.of("versionName", "v2", "worker", "김철수"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         String original = fileId(latest(r.json()), 0);
         assertEquals("계약/v1/edit1/" + revName, storageKey(original));
@@ -282,11 +334,16 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void renamingSecondVersionKeepsSharedOriginalName() throws IOException {
+        // given
         JsonNode doc = sentV1WithWorkingV2Revision();
         String id = doc.get("id").asString();
         JsonNode v1Original = doc.get("versions").get(0).get("files").get(0);
         String origName = st(v1Original, "계약 v1", ".pdf");
+
+        // when
         Response r = patch("/api/documents/" + id + "/versions/" + latest(doc).get("id").asString(), Map.of("name", "초안"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         JsonNode v2 = latest(r.json());
         JsonNode shared = v2.get("files").get(0);
@@ -305,9 +362,14 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void renamingCategoryFollowsSentAndWorkingVersions() throws IOException {
+        // given
         JsonNode doc = sentV1WithWorkingV2Revision();
         String id = doc.get("id").asString();
+
+        // when
         Response r = put("/api/categories/" + doc.get("categoryId").asString(), Map.of("name", "회계"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         JsonNode after = docById(id);
         JsonNode v1Original = after.get("versions").get(0).get("files").get(0);
@@ -328,8 +390,13 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void forbiddenCharactersInCategoryNameAreReplacedOnDiskOnly() throws IOException {
+        // given
         String cat = category("재/무?");
+
+        // when
         Response up = uploadDoc(cat, "김철수");
+
+        // then
         assertEquals(201, up.status(), up.text());
         JsonNode f = orig(up.json());
         String disk = "재_무_ v1_" + day(f) + "_김철수.pdf";
@@ -341,14 +408,19 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void renameCollisionGetsSuffixAndDoesNotFail() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         JsonNode withRev = addRevision(id, "김철수").json();
         JsonNode rev = latest(withRev).get("files").get(1);
         String taken = "계약 초안_" + day(rev) + "_김철수.hwpx";
         Files.writeString(at("계약", "v1", "edit1", taken), "other");
+
+        // when
         Response r = patch("/api/documents/" + id + "/versions/" + latest(withRev).get("id").asString(),
                 Map.of("name", "초안"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         JsonNode f = latest(r.json()).get("files").get(1);
         String expected = "계약 초안_" + day(rev) + "_김철수 (2).hwpx";
@@ -362,6 +434,7 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void rolledBackCategoryRenameRestoresFolderFilesAndKeys() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         JsonNode withRev = addRevision(doc.get("id").asString(), "김철수").json();
         String cat = doc.get("categoryId").asString();
@@ -371,12 +444,13 @@ class StorageLayoutApiTest extends ApiTestSupport {
         Set<String> edit1Before = names(at("계약", "v1", "edit1"));
 
         TransactionTemplate tx = new TransactionTemplate(tm);
+
+        // when & then: 이름을 바꾼 트랜잭션이 실패해 롤백되면 폴더·파일·키가 그대로다
         assertThrows(IllegalStateException.class, () -> tx.executeWithoutResult(st -> {
             categoryService.update(cat, "회계");
             assertTrue(Files.isDirectory(at("회계", "v1")));
             throw new IllegalStateException("fail");
         }));
-
         assertEquals(Set.of("계약"), names(storageRoot()));
         assertEquals(v1Before, names(at("계약", "v1")));
         assertEquals(edit1Before, names(at("계약", "v1", "edit1")));
@@ -387,7 +461,10 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void storageRootApiReturnsAbsolutePath() {
+        // when
         Response r = get("/api/storage-root");
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertEquals(storageRoot().toString(), r.json().get("path").asString());
         assertTrue(Path.of(r.json().get("path").asString()).isAbsolute());
@@ -395,13 +472,23 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void deletingVersionRemovesOnlyItsFolder() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         fixture(latest(doc).get("id").asString(), "sent");
         JsonNode v2Doc = post("/api/documents/" + id + "/versions", Map.of("versionName", "v2", "worker", "김철수")).json();
-        assertEquals(200, addRevision(id, "김철수").status());
+
+        // when: v2에 수정본을 올린다
+        Response added = addRevision(id, "김철수");
+
+        // then: v2 폴더에 edit1이 생긴다
+        assertEquals(200, added.status());
         assertEquals(Set.of("edit1"), names(at("계약", "v2")));
+
+        // when: v2를 지운다
         Response r = delete("/api/documents/" + id + "/versions/" + latest(v2Doc).get("id").asString());
+
+        // then: v2 폴더만 지워지고 v1 원본은 남는다
         assertEquals(200, r.status(), r.text());
         assertFalse(Files.exists(at("계약", "v2")));
         assertEquals("original", read(at("계약", "v1", st(orig(doc), "계약 v1", ".pdf"))));
@@ -409,14 +496,23 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void resourcesGoToResourceFolder() throws IOException {
+        // given
         String cat = category("계약");
+
+        // when: 자료를 올린다
         Response r = multipart(HttpMethod.POST, "/api/categories/" + cat + "/resources",
                 Map.of("kind", "reference", "title", "참고"), Map.of("file", Part.of("a.txt", "hello")));
+
+        // then: 카테고리의 _자료 폴더에 저장된다
         assertEquals(201, r.status(), r.text());
         assertEquals("hello", read(at("계약", "_자료", "a.txt")));
         assertDownload(r.json().get("id").asString(), "hello");
 
-        assertEquals(200, put("/api/categories/" + cat, Map.of("name", "회계")).status());
+        // when: 카테고리 이름을 바꾼다
+        Response renamed = put("/api/categories/" + cat, Map.of("name", "회계"));
+
+        // then: _자료 폴더가 따라가고 파일 이름은 그대로다
+        assertEquals(200, renamed.status());
         assertEquals("hello", read(at("회계", "_자료", "a.txt")));
         assertEquals(Set.of("a.txt"), names(at("회계", "_자료")));
         String fileName = jdbc.sql("SELECT file_name FROM stored_files").query(String.class).single();
@@ -426,11 +522,16 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void deletingCategoryRemovesResourcesAndMovesDocumentToUnclassified() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String cat = doc.get("categoryId").asString();
         assertEquals(201, multipart(HttpMethod.POST, "/api/categories/" + cat + "/resources",
                 Map.of("kind", "etc", "title", "t"), Map.of("file", Part.of("a.txt", "hello"))).status());
+
+        // when
         Response r = delete("/api/categories/" + cat);
+
+        // then
         assertEquals(204, r.status());
         assertFalse(Files.exists(at("계약")));
         assertEquals("original", read(at("_미분류", "계약", "v1", st(orig(doc), "계약 v1", ".pdf"))));
@@ -441,15 +542,25 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void assigningCategoryMovesVersionFoldersAndRenamesFiles() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         JsonNode rev = latest(addRevision(id, "김철수").json()).get("files").get(1);
         String revName = rev.get("downloadName").asString();
-        assertEquals(204, delete("/api/categories/" + doc.get("categoryId").asString()).status());
+
+        // when: 카테고리를 지운다
+        Response deleted = delete("/api/categories/" + doc.get("categoryId").asString());
+
+        // then: 문서 폴더가 _미분류 아래로 옮겨진다
+        assertEquals(204, deleted.status());
         assertEquals(2, names(at("_미분류", "계약", "v1", "edit1")).size());
         assertEquals("_미분류/계약/v1/edit1/" + revName, storageKey(rev.get("id").asString()));
+
+        // when: 새 카테고리를 지정한다
         Response r = post("/api/documents/" + id + "/category",
                 Map.of("newCategory", Map.of("name", "신규")));
+
+        // then: 새 카테고리 폴더로 옮겨지고 파일 이름이 바뀐다
         assertEquals(200, r.status(), r.text());
         JsonNode o = orig(r.json());
         String origName = st(o, "신규 v1", ".pdf");
@@ -468,17 +579,23 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void dangerousNamesStayInsideRoot() throws IOException {
+        // given
         Path parent = storageRoot().getParent();
         Set<String> before = names(parent);
+
+        // when & then: 위험한 이름으로 카테고리를 만든다
         for (String name : List.of("../밖", "a:b*c", "CON", "_미분류")) {
             Response r = post("/api/categories", Map.of("name", name));
             assertEquals(201, r.status(), r.text());
         }
+
+        // when: 정상 카테고리에 위험한 파일 이름으로 올린다
         String cat = category("정상");
         Response up = multipart(HttpMethod.POST, "/api/documents", Map.of("categoryId", cat, "worker", "김철수"),
                 Map.of("file", Part.of("..\\x.pdf", "x")));
-        assertEquals(201, up.status(), up.text());
 
+        // then: 모든 폴더·파일이 저장 루트 안에 있다
+        assertEquals(201, up.status(), up.text());
         assertEquals(before, names(parent));
         Set<String> inRoot = names(storageRoot());
         assertEquals(5, inRoot.size(), inRoot.toString());
@@ -495,18 +612,26 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void sameCategoryNamesGetSuffix() throws IOException {
+        // when
         category("이름");
         category("이름");
+
+        // then
         assertEquals(Set.of("이름", "이름 (2)"), names(storageRoot()));
     }
 
     @Test
     void renamingCategoryRenamesFolderAndFiles() throws IOException {
+        // given
         JsonNode doc = newDoc("계약");
         String id = doc.get("id").asString();
         String cat = doc.get("categoryId").asString();
         JsonNode rev = latest(addRevision(id, "김철수").json()).get("files").get(1);
+
+        // when: 이름을 Contract로 바꾼다
         Response r = put("/api/categories/" + cat, Map.of("name", "Contract"));
+
+        // then: 폴더와 파일 이름이 바뀐다
         assertEquals(200, r.status(), r.text());
         String origName = st(orig(doc), "Contract v1", ".pdf");
         String revName = st(rev, "Contract v1", ".hwpx");
@@ -526,7 +651,10 @@ class StorageLayoutApiTest extends ApiTestSupport {
         assertDownload(rev.get("id").asString(), "revised");
         assertDownload(fileId(latest(doc), 0), "original");
 
+        // when: 대소문자만 바꾼다
         r = put("/api/categories/" + cat, Map.of("name", "contract"));
+
+        // then: 대소문자만 다른 이름으로도 바뀐다
         assertEquals(200, r.status(), r.text());
         assertEquals(Set.of("contract"), names(storageRoot()));
         assertEquals(Set.of(st(orig(doc), "contract v1", ".pdf"), "edit1"), names(at("contract", "v1")));
@@ -566,37 +694,58 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void renamingCategoryRenamesReviewCopy() {
+        // given
         JsonNode doc = rejectedDoc("재무", true);
         String cat = doc.get("categoryId").asString();
-        assertEquals(200, put("/api/categories/" + cat, Map.of("name", "회계")).status());
+
+        // when
+        Response r = put("/api/categories/" + cat, Map.of("name", "회계"));
+
+        // then
+        assertEquals(200, r.status());
         assertReviewCopy(docById(doc.get("id").asString()), "회계", "v1", "회계", "v1", "edit1");
     }
 
     @Test
     void renamingWorkingVersionRenamesReviewCopy() {
+        // given
         JsonNode doc = rejectedDoc("재무", true);
         String id = doc.get("id").asString();
+
+        // when
         Response r = patch("/api/documents/" + id + "/versions/" + latest(doc).get("id").asString(), Map.of("name", "초안"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertReviewCopy(r.json(), "재무", "초안", "재무", "초안", "edit1");
     }
 
     @Test
     void assigningCategoryRenamesReviewCopy() {
+        // given
         JsonNode doc = rejectedDoc("재무", true);
         String id = doc.get("id").asString();
         assertEquals(204, delete("/api/categories/" + doc.get("categoryId").asString()).status());
+
+        // when
         Response r = post("/api/documents/" + id + "/category",
                 Map.of("newCategory", Map.of("name", "감사")));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertReviewCopy(r.json(), "감사", "v1", "감사", "v1", "edit1");
     }
 
     @Test
     void deletingLatestRevisionDeletesReviewCopyKeepsRound() {
+        // given
         JsonNode doc = rejectedDoc("재무", true);
         String id = doc.get("id").asString();
+
+        // when
         Response r = delete("/api/documents/" + id + "/revisions/" + fileId(latest(doc), 1));
+
+        // then
         assertEquals(200, r.status(), r.text());
         JsonNode reviews = latest(r.json()).get("reviews");
         assertEquals(1, reviews.size());
@@ -609,9 +758,15 @@ class StorageLayoutApiTest extends ApiTestSupport {
 
     @Test
     void deletingVersionRemovesRoundsAndReviewCopies() {
+        // given
         JsonNode doc = rejectedDoc("재무", false);
         String id = doc.get("id").asString();
-        assertEquals(204, delete("/api/documents/" + id + "/versions/" + latest(doc).get("id").asString()).status());
+
+        // when
+        Response r = delete("/api/documents/" + id + "/versions/" + latest(doc).get("id").asString());
+
+        // then
+        assertEquals(204, r.status());
         assertEquals(0, jdbc.sql("SELECT count(*) FROM version_review_rounds").query(Long.class).single());
         assertEquals(0, jdbc.sql("SELECT count(*) FROM review_round_reviewers").query(Long.class).single());
         assertEquals(0, storedFileRows());
@@ -627,6 +782,7 @@ class StorageRootOverrideTest {
 
     @Test
     void rootFollowsConfiguration() {
+        // when & then
         assertEquals(Path.of("build/test-storage-override").toAbsolutePath().normalize(), storage.root());
         assertTrue(Files.isDirectory(storage.root()));
     }
