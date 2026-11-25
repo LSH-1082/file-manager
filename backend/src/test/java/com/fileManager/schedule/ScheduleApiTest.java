@@ -55,11 +55,15 @@ class ScheduleApiTest extends ApiTestSupport {
     // 1
     @Test
     void createOnCategoryDocumentReturnsAllFieldsAndAllowsMany() {
+        // given
         JsonNode doc = newDoc("계약");
         String docId = id(doc);
         String catId = doc.get("categoryId").asString();
 
+        // when: 일정을 만든다
         JsonNode s = createOk(docId, "2026-11-01", "2026-11-20", "초안");
+
+        // then: 모든 필드를 돌려준다
         assertTrue(s.get("id").asString().matches("[0-9a-f-]{36}"));
         assertEquals(docId, s.get("documentId").asString());
         assertEquals("계약", s.get("documentTitle").asString());
@@ -71,7 +75,10 @@ class ScheduleApiTest extends ApiTestSupport {
         assertEquals(s.get("createdAt").asString(), s.get("updatedAt").asString());
         assertTrue(s.get("createdAt").asString().matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z"));
 
+        // when: 같은 문서에 메모 없이 하나 더 만든다
         JsonNode s2 = createOk(docId, "2026-12-01", "2026-12-10", null);
+
+        // then: 여러 개를 받고 메모는 빠진다
         assertNotEquals(id(s), id(s2));
         assertEquals(docId, s2.get("documentId").asString());
         assertFalse(s2.has("memo"));
@@ -82,10 +89,12 @@ class ScheduleApiTest extends ApiTestSupport {
     // 2, 5
     @Test
     void uncategorizedDocumentKeepsAndAcceptsSchedules() {
+        // given
         JsonNode doc = newDoc("재무");
         String docId = id(doc);
         JsonNode before = createOk(docId, "2026-11-01", "2026-11-05", null);
 
+        // when & then: 카테고리를 지우면 일정이 미분류 문서로 남는다
         assertEquals(204, delete("/api/categories/" + doc.get("categoryId").asString()).status());
 
         JsonNode all = list();
@@ -95,7 +104,10 @@ class ScheduleApiTest extends ApiTestSupport {
         assertTrue(all.get(0).get("categoryId").isNull());
         assertEquals("재무", all.get(0).get("documentTitle").asString());
 
+        // when: 미분류 문서에 일정을 만든다
         JsonNode s = createOk(docId, "2026-11-10", "2026-11-12", null);
+
+        // then: 카테고리 없이 만들어진다
         assertTrue(s.has("categoryId"));
         assertTrue(s.get("categoryId").isNull());
         assertEquals("재무", s.get("documentTitle").asString());
@@ -105,7 +117,10 @@ class ScheduleApiTest extends ApiTestSupport {
     // 3
     @Test
     void listIsEmptyThenSortedByStartPlannedCreated() {
+        // when & then: 처음에는 목록이 비어 있다
         assertEquals(0, list().size());
+
+        // when: 문서 둘에 일정 넷을 만든다
         String a = id(newDoc("가"));
         String b = id(newDoc("나"));
         String s1 = id(createOk(a, "2026-11-10", "2026-11-20", null));
@@ -113,6 +128,7 @@ class ScheduleApiTest extends ApiTestSupport {
         String s3 = id(createOk(a, "2026-11-10", "2026-11-15", null));
         String s4 = id(createOk(b, "2026-11-10", "2026-11-20", null)); // s1과 날짜가 같고 뒤에 만듦
 
+        // then: 시작일·예정일·생성 순으로 정렬된다
         JsonNode all = list();
         assertEquals(List.of(s2, s3, s1, s4), List.of(id(all.get(0)), id(all.get(1)), id(all.get(2)), id(all.get(3))));
     }
@@ -120,9 +136,14 @@ class ScheduleApiTest extends ApiTestSupport {
     // 4
     @Test
     void renamingCategoryChangesDocumentTitle() {
+        // given
         JsonNode doc = newDoc("옛이름");
         createOk(id(doc), "2026-11-01", "2026-11-02", null);
+
+        // when
         Response r = put("/api/categories/" + doc.get("categoryId").asString(), Map.of("name", "새이름"));
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertEquals("새이름", list().get(0).get("documentTitle").asString());
     }
@@ -130,13 +151,17 @@ class ScheduleApiTest extends ApiTestSupport {
     // 6
     @Test
     void deletingOnlyVersionDeletesDocumentSchedules() {
+        // given
         JsonNode doc = newDoc("삭제");
         JsonNode other = newDoc("남김");
         createOk(id(doc), "2026-11-01", "2026-11-02", null);
         createOk(id(doc), "2026-11-03", "2026-11-04", null);
         String kept = id(createOk(id(other), "2026-11-05", "2026-11-06", null));
 
+        // when
         Response r = delete("/api/documents/" + id(doc) + "/versions/" + latestVersionId(doc));
+
+        // then
         assertEquals(204, r.status(), r.text());
 
         JsonNode all = list();
@@ -150,9 +175,14 @@ class ScheduleApiTest extends ApiTestSupport {
     // 7
     @Test
     void stageFollowsLatestVersion() {
+        // given
         JsonNode doc = newDoc("단계");
         createOk(id(doc), "2026-11-01", "2026-11-02", null);
+
+        // when
         Response r = post("/api/documents/" + id(doc) + "/work-done", Map.of());
+
+        // then
         assertEquals(200, r.status(), r.text());
         assertEquals("queued", list().get(0).get("stage").asString());
     }
@@ -160,17 +190,24 @@ class ScheduleApiTest extends ApiTestSupport {
     // 8
     @Test
     void sameDayAndMemoBoundaries() {
+        // given
         String docId = id(newDoc("경계"));
+
+        // when: 시작일과 예정일이 같은 일정을 만든다
         JsonNode same = createOk(docId, "2026-11-23", "2026-11-23", null);
+
+        // then: 같은 날을 받는다
         assertEquals("2026-11-23", same.get("startDate").asString());
         assertEquals("2026-11-23", same.get("plannedSendDate").asString());
 
+        // when & then: 메모는 앞뒤 공백을 지운 뒤 20자까지 받는다
         String twenty = "가".repeat(20);
         assertEquals(twenty, createOk(docId, "2026-11-01", "2026-11-02", twenty).get("memo").asString());
         assertError(create(docId, "2026-11-01", "2026-11-02", "가".repeat(21)), 400, "INVALID_INPUT", MEMO_TOO_LONG);
         // 앞뒤 공백은 지운 뒤 센다
         assertEquals(twenty, createOk(docId, "2026-11-01", "2026-11-02", "  " + twenty + " ").get("memo").asString());
 
+        // when & then: 공백만 있는 메모는 빠지고 DB에도 NULL이며, 메모는 다듬어 저장한다
         JsonNode blank = createOk(docId, "2026-11-01", "2026-11-02", "   ");
         assertFalse(blank.has("memo"));
         assertEquals("메모", createOk(docId, "2026-11-01", "2026-11-02", "  메모 ").get("memo").asString());
@@ -182,7 +219,10 @@ class ScheduleApiTest extends ApiTestSupport {
     // 9
     @Test
     void createRejectionsInOrder() {
+        // given
         String docId = id(newDoc("검사"));
+
+        // when & then: 검사 순서대로 거절하고 일정이 생기지 않는다
         assertError(post("/api/schedules", body("documentId", docId, "plannedSendDate", "2026-11-02")),
                 400, "INVALID_INPUT", START_EMPTY);
         assertError(create(docId, null, "2026-11-02", null), 400, "INVALID_INPUT", START_EMPTY);
@@ -227,13 +267,17 @@ class ScheduleApiTest extends ApiTestSupport {
     // 10
     @Test
     void updateChangesDatesAndMemoOnly() throws Exception {
+        // given
         String docId = id(newDoc("수정"));
         String otherDoc = id(newDoc("다른"));
         JsonNode s = createOk(docId, "2026-11-01", "2026-11-05", "처음");
         Thread.sleep(5);
 
+        // when: 문서·날짜·메모를 바꾼다
         Response r = put("/api/schedules/" + id(s),
                 body("documentId", otherDoc, "startDate", "2026-12-01", "plannedSendDate", "2026-12-01", "memo", " 다음 "));
+
+        // then: 날짜와 메모만 바뀐다
         assertEquals(200, r.status(), r.text());
         JsonNode u = r.json();
         assertEquals(id(s), id(u));
@@ -245,14 +289,18 @@ class ScheduleApiTest extends ApiTestSupport {
         assertEquals(s.get("createdAt").asString(), u.get("createdAt").asString());
         assertNotEquals(s.get("updatedAt").asString(), u.get("updatedAt").asString());
 
+        // when: memo 키 없이 바꾼다
         // memo 키를 빼면 메모가 지워진다(전체 교체)
         JsonNode cleared = put("/api/schedules/" + id(s), body("startDate", "2026-12-01", "plannedSendDate", "2026-12-02")).json();
+
+        // then: 메모가 지워지고 문서는 그대로다
         assertFalse(cleared.has("memo"));
         JsonNode listed = list().get(0);
         assertFalse(listed.has("memo"));
         assertEquals(docId, listed.get("documentId").asString());
         assertEquals("2026-12-02", listed.get("plannedSendDate").asString());
 
+        // when & then: 잘못된 입력과 없는 일정은 거절되고 아무것도 바뀌지 않는다
         // 검사(①~⑤)
         assertError(put("/api/schedules/" + id(s), body("plannedSendDate", "2026-12-02")), 400, "INVALID_INPUT", START_EMPTY);
         assertError(put("/api/schedules/" + id(s), body("startDate", "2026-12-01")), 400, "INVALID_INPUT", PLANNED_EMPTY);
@@ -281,16 +329,19 @@ class ScheduleApiTest extends ApiTestSupport {
     // 11
     @Test
     void deleteIsIdempotentAndTouchesNothingElse() {
+        // given
         JsonNode doc = newDoc("지움");
         String a = id(createOk(id(doc), "2026-11-01", "2026-11-02", null));
         String b = id(createOk(id(doc), "2026-11-03", "2026-11-04", null));
         String docBefore = get("/api/documents").text();
 
+        // when & then: 일정 하나를 지우면 그것만 없어진다
         assertEquals(204, delete("/api/schedules/" + a).status());
         JsonNode all = list();
         assertEquals(1, all.size());
         assertEquals(b, id(all.get(0)));
 
+        // when & then: 다시 지우거나 없는 id를 지워도 204이고 다른 데이터는 그대로다
         assertEquals(204, delete("/api/schedules/" + a).status());
         assertEquals(204, delete("/api/schedules/" + UUID0).status());
         assertEquals(204, delete("/api/schedules/abc").status());
